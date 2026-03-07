@@ -61,42 +61,60 @@ class Config:
         
         # Run Organization Configuration
         self.runs_dir = Path(self._get_optional("RUNS_DIR", "./runs"))
-        self.keep_runs = int(self._get_optional("KEEP_RUNS", "5"))
         
         # Logging Configuration
         self.log_level = self._get_optional("LOG_LEVEL", "INFO").upper()
         self.trace_api_calls = self._get_optional("TRACE_API_CALLS", "false").lower() == "true"
         
-        # Download Control Configuration
-        self.download_runtime_artifacts = self._get_bool("DOWNLOAD_RUNTIME_ARTIFACTS", "true")
-        self.download_packages = self._get_bool("DOWNLOAD_PACKAGES", "true")
-        self.download_iflows = self._get_bool("DOWNLOAD_IFLOWS", "true")
-        self.download_resources = self._get_bool("DOWNLOAD_RESOURCES", "true")
-        self.download_configurations = self._get_bool("DOWNLOAD_CONFIGURATIONS", "true")
-        self.download_message_mappings = self._get_bool("DOWNLOAD_MESSAGE_MAPPINGS", "true")
-        self.download_value_mappings = self._get_bool("DOWNLOAD_VALUE_MAPPINGS", "true")
-        self.download_script_collections = self._get_bool("DOWNLOAD_SCRIPT_COLLECTIONS", "true")
-        self.download_security_apis = self._get_bool("DOWNLOAD_SECURITY_APIS", "true")
-        self.download_partner_directory = self._get_bool("DOWNLOAD_PARTNER_DIRECTORY", "true")
-        self.download_discover_versions = self._get_bool("DOWNLOAD_DISCOVER_VERSIONS", "true")
-        self.download_artifact_zips = self._get_bool("DOWNLOAD_ARTIFACT_ZIPS", "true")
-        self.extract_readonly_packages = self._get_bool("EXTRACT_READONLY_PACKAGES", "true")
+        # =============================================================================
+        # EXECUTION MODE - Simplified configuration
+        # =============================================================================
+        self.execution_mode = self._get_optional("EXECUTION_MODE", "FULL").upper()
+        self.report_db_path = self._get_optional("REPORT_DB_PATH", "").strip()
         
-        # IFlow content extraction (IFLW, scripts, mappings, schemas, archives)
-        self.extract_iflow_content = self._get_bool("EXTRACT_IFLOW_CONTENT", "true")
+        # For FULL mode, everything is enabled (hardcoded to TRUE)
+        if self.execution_mode == "FULL":
+            self.download_runtime_artifacts = True
+            self.download_packages = True
+            self.download_iflows = True
+            self.download_resources = True
+            self.download_configurations = True
+            self.download_message_mappings = True
+            self.download_value_mappings = True
+            self.download_script_collections = True
+            self.download_security_apis = True
+            self.download_partner_directory = True
+            self.download_discover_versions = True
+            self.download_artifact_zips = True
+            self.extract_readonly_packages = True
+            self.extract_iflow_content = True
+            self.extract_script_collection_content = True
+            self.extract_message_mapping_content = True
+            self.extract_value_mapping_content = True
+            self.parse_bpmn_content = True
+        else:
+            # For REPORT_ONLY mode, all downloads/parsing disabled
+            self.download_runtime_artifacts = False
+            self.download_packages = False
+            self.download_iflows = False
+            self.download_resources = False
+            self.download_configurations = False
+            self.download_message_mappings = False
+            self.download_value_mappings = False
+            self.download_script_collections = False
+            self.download_security_apis = False
+            self.download_partner_directory = False
+            self.download_discover_versions = False
+            self.download_artifact_zips = False
+            self.extract_readonly_packages = False
+            self.extract_iflow_content = False
+            self.extract_script_collection_content = False
+            self.extract_message_mapping_content = False
+            self.extract_value_mapping_content = False
+            self.parse_bpmn_content = False
         
-        # Artifact content extraction (Script Collections, Message Mappings, Value Mappings)
-        self.extract_script_collection_content = self._get_bool("EXTRACT_SCRIPT_COLLECTION_CONTENT", "true")
-        self.extract_message_mapping_content = self._get_bool("EXTRACT_MESSAGE_MAPPING_CONTENT", "true")
-        self.extract_value_mapping_content = self._get_bool("EXTRACT_VALUE_MAPPING_CONTENT", "true")
-        
-        # BPMN Analysis (unified flag for all BPMN parsers)
-        self.parse_bpmn_content = self._get_bool("PARSE_BPMN_CONTENT", "true")
-        
-        # Execution Mode Configuration
-        self.download_only = self._get_bool("DOWNLOAD_ONLY", "false")
-        self.analyze_existing = self._get_bool("ANALYZE_EXISTING", "false")
-        self.analyze_run_timestamp = self._get_optional("ANALYZE_RUN_TIMESTAMP", "").strip()
+        # Legacy flag support (with deprecation warnings)
+        self._check_legacy_flags()
         
         # Additional Configuration
         self.max_artifact_size_mb = int(self._get_optional("MAX_ARTIFACT_SIZE_MB", "50"))
@@ -109,6 +127,30 @@ class Config:
         
         # Ensure directories exist
         self._ensure_directories()
+    
+    def _check_legacy_flags(self):
+        """Check for legacy configuration flags and log warnings"""
+        try:
+            from utils.logger import get_logger
+            logger = get_logger(__name__)
+        except ImportError:
+            import logging
+            logger = logging.getLogger(__name__)
+        
+        legacy_flags = {
+            'DOWNLOAD_ONLY': 'Use EXECUTION_MODE=FULL instead',
+            'ANALYZE_EXISTING': 'Use EXECUTION_MODE=REPORT_ONLY with REPORT_DB_PATH',
+            'ANALYZE_RUN_TIMESTAMP': 'Use REPORT_DB_PATH instead',
+            'DOWNLOAD_PACKAGES': 'FULL mode downloads everything automatically',
+            'DOWNLOAD_IFLOWS': 'FULL mode downloads everything automatically',
+            'EXTRACT_IFLOW_CONTENT': 'FULL mode extracts everything automatically',
+            'PARSE_BPMN_CONTENT': 'FULL mode parses everything automatically',
+            'KEEP_RUNS': 'Removed - manage runs manually'
+        }
+        
+        for flag, message in legacy_flags.items():
+            if os.getenv(flag):
+                logger.warning(f"⚠️  {flag} is deprecated. {message}")
     
     def _get_required(self, key: str) -> str:
         """
@@ -232,43 +274,6 @@ class Config:
         path.mkdir(parents=True, exist_ok=True)
         return path
     
-    def cleanup_old_runs(self, keep_last: int):
-        """
-        Delete old runs beyond retention limit
-        
-        Args:
-            keep_last: Number of most recent runs to keep (0 = keep all)
-        """
-        if keep_last <= 0:
-            return  # Keep all runs
-        
-        tenant_dir = self.runs_dir / self.tenant_id
-        
-        if not tenant_dir.exists():
-            return
-        
-        try:
-            from utils.logger import get_logger
-            logger = get_logger(__name__)
-        except ImportError:
-            import logging
-            logger = logging.getLogger(__name__)
-        
-        # Get all run directories (sorted by name = timestamp)
-        run_dirs = sorted(
-            [d for d in tenant_dir.iterdir() if d.is_dir()],
-            reverse=True  # Newest first
-        )
-        
-        # Delete old runs
-        import shutil
-        for old_run in run_dirs[keep_last:]:
-            try:
-                logger.info(f"Cleaning up old run: {old_run.name}")
-                shutil.rmtree(old_run)
-            except Exception as e:
-                logger.warning(f"Failed to delete old run {old_run.name}: {e}")
-    
     def has_discover_config(self) -> bool:
         """
         Check if Discover tenant configuration is available
@@ -310,6 +315,33 @@ class Config:
         # Validate authentication configuration
         self._validate_auth_configuration()
         
+        # Validate execution mode
+        if self.execution_mode not in ["FULL", "REPORT_ONLY"]:
+            raise ValueError(
+                f"Invalid execution mode '{self.execution_mode}'. "
+                f"Must be 'FULL' or 'REPORT_ONLY'"
+            )
+        
+        # Validate REPORT_ONLY mode requirements
+        if self.execution_mode == "REPORT_ONLY":
+            if not self.report_db_path:
+                raise ValueError(
+                    "REPORT_ONLY mode requires REPORT_DB_PATH to be set. "
+                    "Example: runs/Trial/20260307_164253/ci_analyzer_Trial_20260307_164253.db"
+                )
+            
+            db_path = Path(self.report_db_path)
+            if not db_path.exists():
+                raise ValueError(
+                    f"Database file not found: {self.report_db_path}\n"
+                    f"Please verify the path is correct and the database exists."
+                )
+            
+            if not db_path.is_file():
+                raise ValueError(
+                    f"REPORT_DB_PATH must point to a file, not a directory: {self.report_db_path}"
+                )
+        
         # Validate log level
         valid_log_levels = ["TRACE", "DEBUG", "INFO", "WARNING", "ERROR"]
         if self.log_level not in valid_log_levels:
@@ -334,9 +366,6 @@ class Config:
         
         # Check URL patterns and provide warnings
         self._check_url_patterns()
-        
-        # Validate download dependencies
-        self.validate_download_dependencies()
         
         return True
     
@@ -410,73 +439,11 @@ class Config:
                 "   Please verify your configuration. API URL: %s", self.api_base_url
             )
     
-    def validate_download_dependencies(self):
-        """
-        Validate API download dependencies
-        Only validates when downloads are explicitly enabled
-        
-        Raises:
-            ValueError: If download dependencies are not met
-        """
-        errors = []
-        
-        # Only validate dependencies if the dependent download is enabled
-        
-        # IFlows depend on Packages
-        if self.download_iflows and not self.download_packages:
-            errors.append("❌ IFlows require Packages (set DOWNLOAD_PACKAGES=true or DOWNLOAD_IFLOWS=false)")
-        
-        # Resources depend on IFlows (but only validate if Resources is enabled)
-        if self.download_resources and not self.download_iflows:
-            errors.append("❌ Resources require IFlows (set DOWNLOAD_IFLOWS=true or DOWNLOAD_RESOURCES=false)")
-        
-        # Configurations depend on IFlows (but only validate if Configurations is enabled)
-        if self.download_configurations and not self.download_iflows:
-            errors.append("❌ Configurations require IFlows (set DOWNLOAD_IFLOWS=true or DOWNLOAD_CONFIGURATIONS=false)")
-        
-        # Script Collections depend on Packages
-        if self.download_script_collections and not self.download_packages:
-            errors.append("❌ Script Collections require Packages (set DOWNLOAD_PACKAGES=true or DOWNLOAD_SCRIPT_COLLECTIONS=false)")
-        
-        # Message Mappings depend on Packages
-        if self.download_message_mappings and not self.download_packages:
-            errors.append("❌ Message Mappings require Packages (set DOWNLOAD_PACKAGES=true or DOWNLOAD_MESSAGE_MAPPINGS=false)")
-        
-        # Value Mappings depend on Packages
-        if self.download_value_mappings and not self.download_packages:
-            errors.append("❌ Value Mappings require Packages (set DOWNLOAD_PACKAGES=true or DOWNLOAD_VALUE_MAPPINGS=false)")
-        
-        # Artifact ZIPs depend on Packages
-        if self.download_artifact_zips and not self.download_packages:
-            errors.append("❌ Artifact ZIPs require Packages (set DOWNLOAD_PACKAGES=true or DOWNLOAD_ARTIFACT_ZIPS=false)")
-        
-        # READ_ONLY extraction depends on Artifact ZIPs
-        if self.extract_readonly_packages and not self.download_artifact_zips:
-            errors.append("❌ READ_ONLY extraction requires Artifact ZIPs (set DOWNLOAD_ARTIFACT_ZIPS=true or EXTRACT_READONLY_PACKAGES=false)")
-        
-        # IFlow content extraction depends on Artifact ZIPs
-        if self.extract_iflow_content and not self.download_artifact_zips:
-            errors.append("❌ IFlow content extraction requires Artifact ZIPs (set DOWNLOAD_ARTIFACT_ZIPS=true or EXTRACT_IFLOW_CONTENT=false)")
-        
-        # Analyze existing requires timestamp
-        if self.analyze_existing and not self.analyze_run_timestamp:
-            errors.append("❌ ANALYZE_EXISTING=true requires ANALYZE_RUN_TIMESTAMP to be set")
-        
-        # Cannot have both modes
-        if self.analyze_existing and self.download_only:
-            errors.append("❌ Cannot set both ANALYZE_EXISTING=true and DOWNLOAD_ONLY=true")
-        
-        # Discover versions requires packages
-        if self.download_discover_versions and not self.download_packages:
-            errors.append("❌ Discover version check requires Packages (set DOWNLOAD_PACKAGES=true or DOWNLOAD_DISCOVER_VERSIONS=false)")
-        
-        if errors:
-            raise ValueError("Download configuration validation failed:\n" + "\n".join(errors))
-    
     def __repr__(self) -> str:
         """String representation (excluding sensitive data)"""
         return (
             f"Config(tenant_id='{self.tenant_id}', "
+            f"execution_mode='{self.execution_mode}', "
             f"api_base_url='{self.api_base_url}', "
             f"log_level='{self.log_level}')"
         )

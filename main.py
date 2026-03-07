@@ -137,11 +137,6 @@ def main():
         logger.info(f"Run timestamp: {run_timestamp}")
         logger.info(f"Run directory: {config.get_run_dir(run_timestamp)}")
         
-        # Cleanup old runs if configured
-        if config.keep_runs > 0:
-            logger.info(f"Cleaning up old runs (keeping last {config.keep_runs})...")
-            config.cleanup_old_runs(config.keep_runs)
-        
         # Note: Database initialization moved to after BPMN extraction (PHASE 2)
         
         # Log authentication configuration
@@ -174,43 +169,19 @@ def main():
         download_results = {}
         
         # Check execution mode
-        if config.analyze_existing:
+        if config.execution_mode == "REPORT_ONLY":
             logger.info("=" * 70)
-            logger.info("ANALYZE_EXISTING MODE - Loading existing data")
+            logger.info("REPORT_ONLY MODE - Skipping downloads and analysis")
             logger.info("=" * 70)
-            logger.info(f"Analyzing run: {config.analyze_run_timestamp}")
-            
-            # Load existing JSON files from specified run
-            existing_run_path = config.get_download_path(config.analyze_run_timestamp)
-            json_files_path = Path(existing_run_path) / "json-files"
-            
-            logger.info(f"Loading JSON files from: {json_files_path}")
-            
-            # Load each JSON file if it exists
-            for json_file, key in [
-                ("packages.json", "packages"),
-                ("iflows.json", "iflows"),
-                ("resources.json", "resources"),
-                ("configurations.json", "configurations"),
-                ("message-mappings.json", "message_mappings"),
-                ("value-mappings.json", "value_mappings"),
-                ("script-collections.json", "script_collections"),
-            ]:
-                file_path = json_files_path / json_file
-                if file_path.exists():
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        items = data.get('d', {}).get('results', [])
-                        download_results[key] = {'count': len(items), 'items': items}
-                        logger.info(f"Loaded {len(items)} items from {json_file}")
-                else:
-                    logger.warning(f"File not found: {json_file}")
-            
+            logger.info(f"Using database: {config.report_db_path}")
+            logger.info("")
+            logger.info("Note: Report generation not yet implemented")
             logger.info("=" * 70)
-            logger.info("Data loading completed")
-            logger.info("=" * 70)
-        
-        else:
+            
+            # Skip all downloads and analysis, proceed to completion
+            # TODO: Implement report generation here
+            
+        elif config.execution_mode == "FULL":
             # PHASE 1: DOWNLOAD ALL APIs
             logger.info("=" * 70)
             logger.info("PHASE 1: DOWNLOADING DATA")
@@ -1291,8 +1262,8 @@ def main():
                 logger.info("")
                 logger.info("Environment variable scanning skipped (no script files extracted)")
         
-        # PHASE 2: DATABASE OPERATIONS (unless --save-only or DOWNLOAD_ONLY)
-        if not args.save_only and not config.download_only:
+        # PHASE 2: DATABASE OPERATIONS (only in FULL mode, unless --save-only)
+        if config.execution_mode == "FULL" and not args.save_only:
             logger.info("")
             logger.info("=" * 70)
             logger.info("PHASE 2: DATABASE OPERATIONS")
@@ -1369,12 +1340,6 @@ def main():
             except Exception as e:
                 logger.error(f"Database import failed: {e}")
                 raise
-                
-        elif config.download_only:
-            logger.info("")
-            logger.info("=" * 70)
-            logger.info("DOWNLOAD_ONLY mode - Skipping database operations")
-            logger.info("=" * 70)
         
         logger.info("=" * 70)
         logger.info("Analysis completed successfully!")

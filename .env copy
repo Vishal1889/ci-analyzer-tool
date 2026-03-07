@@ -3,8 +3,8 @@
 # ==============================================================================
 
 # Tenant Information
-SAP_TENANT_ID=my-tenant-name
-SAP_TENANT_SHORT_NAME=mytenant
+SAP_TENANT_ID=Trial
+SAP_TENANT_SHORT_NAME=Trial
 
 # Subaccount Type: CF (Cloud Foundry) or NEO
 SAP_SUBACCOUNT_TYPE=CF
@@ -12,7 +12,7 @@ SAP_SUBACCOUNT_TYPE=CF
 # API Base URL
 # CF format: https://tenant-id.it-cpi-region.cfapps.region.hana.ondemand.com/api/v1
 # NEO format: https://account-tmn.hci.region.hana.ondemand.com/api/v1
-SAP_API_BASE_URL=https://mytenant-tmn.eu1.hana.ondemand.com/api/v1
+SAP_API_BASE_URL=https://64ff97e3trial.it-cpitrial03.cfapps.ap21.hana.ondemand.com/api/v1
 
 # ==============================================================================
 # AUTHENTICATION
@@ -23,9 +23,9 @@ SAP_API_BASE_URL=https://mytenant-tmn.eu1.hana.ondemand.com/api/v1
 SAP_AUTH_TYPE=OAUTH
 
 # OAuth Configuration (Required for OAUTH)
-SAP_OAUTH_TOKEN_URL=https://mytenant.authentication.eu1.hana.ondemand.com/oauth/token
-SAP_CLIENT_ID=your_client_id_here
-SAP_CLIENT_SECRET=your_client_secret_here
+SAP_OAUTH_TOKEN_URL=https://64ff97e3trial.authentication.ap21.hana.ondemand.com/oauth/token
+SAP_CLIENT_ID=sb-6a8a99c0-d252-4e3f-af66-f9341358ce40!b108554|it!b196
+SAP_CLIENT_SECRET=e19c1578-cadb-4e99-a8ee-f3d69bb51a60$4KXGDaWzXLDZIFawUzEdS84smdjJFsFs1HXMr6HL7qY=
 
 # Basic Auth Configuration (Required for BASIC - NEO only)
 SAP_BASIC_AUTH_USERNAME=
@@ -51,11 +51,11 @@ REPORT_DB_PATH=
 RUNS_DIR=./runs
 
 # Logging
-LOG_LEVEL=INFO
+LOG_LEVEL=DEBUG
 TRACE_API_CALLS=false
 
 # API Settings
-PARALLEL_DOWNLOADS=1
+PARALLEL_DOWNLOADS=10
 API_TIMEOUT=30
 API_RETRY_COUNT=3
 API_PAGE_SIZE=50
