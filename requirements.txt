@@ -1,0 +1,31 @@
+# SAP Cloud Integration Analyzer Tool - Dependencies
+
+# Core dependencies
+requests>=2.31.0
+requests-oauthlib>=1.3.1
+python-dotenv>=1.0.0
+
+# Database
+# sqlite3 is built-in with Python
+
+# Data processing (optional - not required for core functionality)
+# Using >= for better compatibility with Python 3.13+
+pandas>=2.2.0
+
+# Logging (built-in)
+# logging is built-in with Python
+
+# Development and testing
+pytest>=7.4.3
+pytest-cov>=4.1.0
+
+# BPMN Analysis
+cron-descriptor>=1.4.0  # For human-readable cron descriptions
+
+# Certificate parsing for NEO
+cryptography>=41.0.0  # For parsing X.509 certificates
+
+# Optional: For future enhancements
+# lxml>=5.1.0
+# beautifulsoup4>=4.12.2
+# croniter>=2.0.1
