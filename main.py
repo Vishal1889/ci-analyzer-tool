@@ -188,7 +188,7 @@ def main():
             logger.info("=" * 70)
             
             # Download Runtime Artifacts (independent) - FIRST!
-            if config.download_runtime_artifacts and (args.api == 'runtime' or not args.api):
+            if args.api == 'runtime' or not args.api:
                 logger.info("")
                 logger.info("Downloading Runtime Artifacts...")
                 logger.info("-" * 70)
@@ -204,7 +204,7 @@ def main():
                 logger.info(f"Downloaded {download_results['runtime_artifacts']['count']} runtime artifacts")
         
             # Download Packages
-            if config.download_packages and (args.api == 'packages' or not args.api):
+            if args.api == 'packages' or not args.api:
                 logger.info("")
                 logger.info("Downloading Packages...")
                 logger.info("-" * 70)
@@ -257,7 +257,7 @@ def main():
                     logger.info("Discover version check skipped (no Discover tenant configuration provided)")
         
             # Download IFlows (depends on packages)
-            if config.download_iflows and (args.api == 'iflows' or not args.api) and 'packages' in download_results:
+            if (args.api == 'iflows' or not args.api) and 'packages' in download_results:
                 logger.info("")
                 logger.info("Downloading IFlows...")
                 logger.info("-" * 70)
@@ -275,7 +275,7 @@ def main():
                 logger.info(f"Downloaded {download_results['iflows']['count']} iflows")
         
             # Download Resources (depends on iflows)
-            if config.download_resources and not args.api and 'iflows' in download_results:
+            if not args.api and 'iflows' in download_results:
                 logger.info("")
                 logger.info("Downloading Resources...")
                 logger.info("-" * 70)
@@ -293,7 +293,7 @@ def main():
                 logger.info(f"Downloaded {download_results['resources']['count']} resources")
         
             # Download Configurations (depends on iflows)
-            if config.download_configurations and not args.api and 'iflows' in download_results:
+            if not args.api and 'iflows' in download_results:
                 logger.info("")
                 logger.info("Downloading Configurations...")
                 logger.info("-" * 70)
@@ -311,7 +311,7 @@ def main():
                 logger.info(f"Downloaded {download_results['configurations']['count']} configurations")
         
             # Download Message Mappings (independent, after packages)
-            if config.download_message_mappings and not args.api and 'packages' in download_results:
+            if not args.api and 'packages' in download_results:
                 logger.info("")
                 logger.info("Downloading Message Mappings...")
                 logger.info("-" * 70)
@@ -328,7 +328,7 @@ def main():
                 logger.info(f"Downloaded {download_results['message_mappings']['count']} message mappings")
         
             # Download Value Mappings (independent, after packages)
-            if config.download_value_mappings and not args.api and 'packages' in download_results:
+            if not args.api and 'packages' in download_results:
                 logger.info("")
                 logger.info("Downloading Value Mappings...")
                 logger.info("-" * 70)
@@ -345,7 +345,7 @@ def main():
                 logger.info(f"Downloaded {download_results['value_mappings']['count']} value mappings")
         
             # Download Script Collections (nested, depends on packages)
-            if config.download_script_collections and not args.api and 'packages' in download_results:
+            if not args.api and 'packages' in download_results:
                 logger.info("")
                 logger.info("Downloading Script Collections...")
                 logger.info("-" * 70)
@@ -363,7 +363,7 @@ def main():
                 logger.info(f"Downloaded {download_results['script_collections']['count']} script collections")
         
             # Download Security & Runtime APIs (independent, no dependencies)
-            if config.download_security_apis and (args.api == 'security' or not args.api):
+            if args.api == 'security' or not args.api:
                 logger.info("")
                 logger.info("Downloading Security & Runtime Data...")
                 logger.info("-" * 70)
@@ -444,7 +444,7 @@ def main():
                 logger.info(f"Downloaded {download_results['access_policies']['count']} access policy records ({download_results['access_policies']['original_policy_count']} policies)")
             
             # Download Partner Directory Binary Parameters (independent)
-            if config.download_partner_directory and not args.api:
+            if not args.api:
                 logger.info("")
                 logger.info("Downloading Partner Directory Binary Parameters...")
                 logger.info("-" * 70)
