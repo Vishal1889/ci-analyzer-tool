@@ -255,8 +255,6 @@ def main():
                 else:
                     logger.info("")
                     logger.info("Discover version check skipped (no Discover tenant configuration provided)")
-            elif not config.download_packages:
-                logger.info("Packages download disabled (DOWNLOAD_PACKAGES=false)")
         
             # Download IFlows (depends on packages)
             if config.download_iflows and (args.api == 'iflows' or not args.api) and 'packages' in download_results:
@@ -275,8 +273,6 @@ def main():
                 
                 download_results['iflows'] = downloader.download()
                 logger.info(f"Downloaded {download_results['iflows']['count']} iflows")
-            elif not config.download_iflows:
-                logger.info("IFlows download disabled (DOWNLOAD_IFLOWS=false)")
         
             # Download Resources (depends on iflows)
             if config.download_resources and not args.api and 'iflows' in download_results:
@@ -295,8 +291,6 @@ def main():
                 
                 download_results['resources'] = downloader.download()
                 logger.info(f"Downloaded {download_results['resources']['count']} resources")
-            elif not config.download_resources:
-                logger.info("Resources download disabled (DOWNLOAD_RESOURCES=false)")
         
             # Download Configurations (depends on iflows)
             if config.download_configurations and not args.api and 'iflows' in download_results:
@@ -315,8 +309,6 @@ def main():
                 
                 download_results['configurations'] = downloader.download()
                 logger.info(f"Downloaded {download_results['configurations']['count']} configurations")
-            elif not config.download_configurations:
-                logger.info("Configurations download disabled (DOWNLOAD_CONFIGURATIONS=false)")
         
             # Download Message Mappings (independent, after packages)
             if config.download_message_mappings and not args.api and 'packages' in download_results:
@@ -334,8 +326,6 @@ def main():
                 
                 download_results['message_mappings'] = downloader.download()
                 logger.info(f"Downloaded {download_results['message_mappings']['count']} message mappings")
-            elif not config.download_message_mappings:
-                logger.info("Message Mappings download disabled (DOWNLOAD_MESSAGE_MAPPINGS=false)")
         
             # Download Value Mappings (independent, after packages)
             if config.download_value_mappings and not args.api and 'packages' in download_results:
@@ -353,8 +343,6 @@ def main():
                 
                 download_results['value_mappings'] = downloader.download()
                 logger.info(f"Downloaded {download_results['value_mappings']['count']} value mappings")
-            elif not config.download_value_mappings:
-                logger.info("Value Mappings download disabled (DOWNLOAD_VALUE_MAPPINGS=false)")
         
             # Download Script Collections (nested, depends on packages)
             if config.download_script_collections and not args.api and 'packages' in download_results:
@@ -373,8 +361,6 @@ def main():
                 
                 download_results['script_collections'] = downloader.download()
                 logger.info(f"Downloaded {download_results['script_collections']['count']} script collections")
-            elif not config.download_script_collections:
-                logger.info("Script Collections download disabled (DOWNLOAD_SCRIPT_COLLECTIONS=false)")
         
             # Download Security & Runtime APIs (independent, no dependencies)
             if config.download_security_apis and (args.api == 'security' or not args.api):
@@ -456,8 +442,6 @@ def main():
                 )
                 download_results['access_policies'] = downloader.download()
                 logger.info(f"Downloaded {download_results['access_policies']['count']} access policy records ({download_results['access_policies']['original_policy_count']} policies)")
-            elif not config.download_security_apis:
-                logger.info("Security APIs download disabled (DOWNLOAD_SECURITY_APIS=false)")
             
             # Download Partner Directory Binary Parameters (independent)
             if config.download_partner_directory and not args.api:
@@ -482,9 +466,6 @@ def main():
                     logger.info("  Extraction by type:")
                     for content_type, count in sorted(download_results['partner_directory']['extraction_stats'].items()):
                         logger.info(f"    {content_type}: {count}")
-            elif not config.download_partner_directory:
-                logger.info("")
-                logger.info("Partner Directory download disabled (DOWNLOAD_PARTNER_DIRECTORY=false)")
         
             logger.info("")
             logger.info("=" * 70)
@@ -547,9 +528,6 @@ def main():
                 except Exception as e:
                     logger.error(f"Artifact ZIP download failed: {e}")
                     logger.warning("Continuing without artifact ZIPs...")
-            elif not config.download_artifact_zips:
-                logger.info("")
-                logger.info("Artifact ZIP downloads disabled (DOWNLOAD_ARTIFACT_ZIPS=false)")
             else:
                 logger.info("")
                 logger.info("Skipping artifact ZIP downloads (packages or iflows not downloaded)")
