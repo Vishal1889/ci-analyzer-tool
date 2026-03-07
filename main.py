@@ -202,8 +202,6 @@ def main():
                 )
                 download_results['runtime_artifacts'] = downloader.download()
                 logger.info(f"Downloaded {download_results['runtime_artifacts']['count']} runtime artifacts")
-            elif not config.download_runtime_artifacts:
-                logger.info("Runtime Artifacts download disabled (DOWNLOAD_RUNTIME_ARTIFACTS=false)")
         
             # Download Packages
             if config.download_packages and (args.api == 'packages' or not args.api):
