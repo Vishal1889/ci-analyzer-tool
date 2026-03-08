@@ -1430,6 +1430,7 @@ def main():
                     EnvironmentVariablesReport,
                     PackageStatisticsReport
                 )
+                from report_generators.formatters import HTMLFormatter
                 
                 db_path = config.get_database_path(run_timestamp)
                 reports_generated = []
@@ -1443,14 +1444,20 @@ def main():
                     report = PackageVersionComparisonReport(db_path, config.tenant_id, timestamp_iso)
                     data = report.generate()
                     
-                    # Save report to JSON file
-                    report_file = reports_dir / f"{report.get_report_name()}.json"
-                    with open(report_file, 'w', encoding='utf-8') as f:
+                    # Save JSON
+                    json_file = reports_dir / f"{report.get_report_name()}.json"
+                    with open(json_file, 'w', encoding='utf-8') as f:
                         json.dump(data, f, indent=2, ensure_ascii=False)
+                    
+                    # Save HTML
+                    html_formatter = HTMLFormatter(report.get_report_title(), config.tenant_id, timestamp_iso)
+                    html_file = reports_dir / f"{report.get_report_name()}.html"
+                    html_formatter.generate_html(data, html_file)
                     
                     reports_generated.append(report.get_report_name())
                     logger.info(f"✓ Generated {report.get_report_title()}")
-                    logger.info(f"  Saved to: {report_file}")
+                    logger.info(f"  JSON: {json_file}")
+                    logger.info(f"  HTML: {html_file}")
                 except Exception as e:
                     logger.warning(f"Could not generate Package Version Comparison: {e}")
                 
@@ -1459,14 +1466,20 @@ def main():
                     report = EnvironmentVariablesReport(db_path, config.tenant_id, timestamp_iso)
                     data = report.generate()
                     
-                    # Save report to JSON file
-                    report_file = reports_dir / f"{report.get_report_name()}.json"
-                    with open(report_file, 'w', encoding='utf-8') as f:
+                    # Save JSON
+                    json_file = reports_dir / f"{report.get_report_name()}.json"
+                    with open(json_file, 'w', encoding='utf-8') as f:
                         json.dump(data, f, indent=2, ensure_ascii=False)
+                    
+                    # Save HTML
+                    html_formatter = HTMLFormatter(report.get_report_title(), config.tenant_id, timestamp_iso)
+                    html_file = reports_dir / f"{report.get_report_name()}.html"
+                    html_formatter.generate_html(data, html_file)
                     
                     reports_generated.append(report.get_report_name())
                     logger.info(f"✓ Generated {report.get_report_title()}")
-                    logger.info(f"  Saved to: {report_file}")
+                    logger.info(f"  JSON: {json_file}")
+                    logger.info(f"  HTML: {html_file}")
                 except Exception as e:
                     logger.warning(f"Could not generate Environment Variables report: {e}")
                 
@@ -1475,14 +1488,20 @@ def main():
                     report = PackageStatisticsReport(db_path, config.tenant_id, timestamp_iso)
                     data = report.generate()
                     
-                    # Save report to JSON file
-                    report_file = reports_dir / f"{report.get_report_name()}.json"
-                    with open(report_file, 'w', encoding='utf-8') as f:
+                    # Save JSON
+                    json_file = reports_dir / f"{report.get_report_name()}.json"
+                    with open(json_file, 'w', encoding='utf-8') as f:
                         json.dump(data, f, indent=2, ensure_ascii=False)
+                    
+                    # Save HTML
+                    html_formatter = HTMLFormatter(report.get_report_title(), config.tenant_id, timestamp_iso)
+                    html_file = reports_dir / f"{report.get_report_name()}.html"
+                    html_formatter.generate_html(data, html_file)
                     
                     reports_generated.append(report.get_report_name())
                     logger.info(f"✓ Generated {report.get_report_title()}")
-                    logger.info(f"  Saved to: {report_file}")
+                    logger.info(f"  JSON: {json_file}")
+                    logger.info(f"  HTML: {html_file}")
                 except Exception as e:
                     logger.warning(f"Could not generate Package Statistics report: {e}")
                 
