@@ -190,6 +190,10 @@ def main():
                 # Extract tenant info from database path
                 db_path = Path(config.report_db_path)
                 
+                # Create reports directory next to database
+                reports_dir = db_path.parent / "reports"
+                reports_dir.mkdir(exist_ok=True)
+                
                 # Generate each report
                 reports_generated = []
                 
@@ -197,8 +201,15 @@ def main():
                 try:
                     report = PackageVersionComparisonReport(db_path, config.tenant_id, datetime.now().isoformat())
                     data = report.generate()
+                    
+                    # Save report to JSON file
+                    report_file = reports_dir / f"{report.get_report_name()}.json"
+                    with open(report_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    
                     reports_generated.append(report.get_report_name())
                     logger.info(f"✓ Generated {report.get_report_title()}")
+                    logger.info(f"  Saved to: {report_file}")
                 except Exception as e:
                     logger.warning(f"Could not generate Package Version Comparison: {e}")
                 
@@ -206,8 +217,15 @@ def main():
                 try:
                     report = EnvironmentVariablesReport(db_path, config.tenant_id, datetime.now().isoformat())
                     data = report.generate()
+                    
+                    # Save report to JSON file
+                    report_file = reports_dir / f"{report.get_report_name()}.json"
+                    with open(report_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    
                     reports_generated.append(report.get_report_name())
                     logger.info(f"✓ Generated {report.get_report_title()}")
+                    logger.info(f"  Saved to: {report_file}")
                 except Exception as e:
                     logger.warning(f"Could not generate Environment Variables report: {e}")
                 
@@ -215,8 +233,15 @@ def main():
                 try:
                     report = PackageStatisticsReport(db_path, config.tenant_id, datetime.now().isoformat())
                     data = report.generate()
+                    
+                    # Save report to JSON file
+                    report_file = reports_dir / f"{report.get_report_name()}.json"
+                    with open(report_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    
                     reports_generated.append(report.get_report_name())
                     logger.info(f"✓ Generated {report.get_report_title()}")
+                    logger.info(f"  Saved to: {report_file}")
                 except Exception as e:
                     logger.warning(f"Could not generate Package Statistics report: {e}")
                 
@@ -1389,12 +1414,23 @@ def main():
                 db_path = config.get_database_path(run_timestamp)
                 reports_generated = []
                 
+                # Create reports directory
+                reports_dir = config.get_run_dir(run_timestamp) / "reports"
+                reports_dir.mkdir(exist_ok=True)
+                
                 # Package Version Comparison
                 try:
                     report = PackageVersionComparisonReport(db_path, config.tenant_id, timestamp_iso)
                     data = report.generate()
+                    
+                    # Save report to JSON file
+                    report_file = reports_dir / f"{report.get_report_name()}.json"
+                    with open(report_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    
                     reports_generated.append(report.get_report_name())
                     logger.info(f"✓ Generated {report.get_report_title()}")
+                    logger.info(f"  Saved to: {report_file}")
                 except Exception as e:
                     logger.warning(f"Could not generate Package Version Comparison: {e}")
                 
@@ -1402,8 +1438,15 @@ def main():
                 try:
                     report = EnvironmentVariablesReport(db_path, config.tenant_id, timestamp_iso)
                     data = report.generate()
+                    
+                    # Save report to JSON file
+                    report_file = reports_dir / f"{report.get_report_name()}.json"
+                    with open(report_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    
                     reports_generated.append(report.get_report_name())
                     logger.info(f"✓ Generated {report.get_report_title()}")
+                    logger.info(f"  Saved to: {report_file}")
                 except Exception as e:
                     logger.warning(f"Could not generate Environment Variables report: {e}")
                 
@@ -1411,8 +1454,15 @@ def main():
                 try:
                     report = PackageStatisticsReport(db_path, config.tenant_id, timestamp_iso)
                     data = report.generate()
+                    
+                    # Save report to JSON file
+                    report_file = reports_dir / f"{report.get_report_name()}.json"
+                    with open(report_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    
                     reports_generated.append(report.get_report_name())
                     logger.info(f"✓ Generated {report.get_report_title()}")
+                    logger.info(f"  Saved to: {report_file}")
                 except Exception as e:
                     logger.warning(f"Could not generate Package Statistics report: {e}")
                 
