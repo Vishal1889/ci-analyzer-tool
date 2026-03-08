@@ -32,7 +32,7 @@ class PackageVersionComparisonReport(BaseReport):
             p.Vendor as vendor,
             p.Mode as mode,
             p.ShortText as description,
-            p.ModifiedAt as last_modified,
+            p.ModifiedDate as last_modified,
             p.ModifiedBy as modified_by
         FROM package p
         WHERE p.tenant_id = ?
