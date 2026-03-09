@@ -184,9 +184,10 @@ def main():
                 from report_generators.report_types import (
                     PackageVersionComparisonReport,
                     EnvironmentVariablesReport,
-                    PackageStatisticsReport
+                    PackageStatisticsReport,
+                    NeoToCFMigrationReport
                 )
-                from report_generators.formatters import HTMLFormatter
+                from report_generators.formatters import HTMLFormatter, NeoToCFFormatter
                 
                 # Extract tenant info from database path
                 db_path = Path(config.report_db_path)
@@ -264,6 +265,28 @@ def main():
                     logger.info(f"  HTML: {html_file}")
                 except Exception as e:
                     logger.warning(f"Could not generate Package Statistics report: {e}")
+                
+                # NEO to CF Migration Assessment
+                try:
+                    report = NeoToCFMigrationReport(db_path, config.tenant_id, captured_at)
+                    data = report.generate()
+                    
+                    # Save JSON
+                    json_file = reports_dir / f"{report.get_report_name()}.json"
+                    with open(json_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    
+                    # Save HTML with specialized formatter
+                    html_formatter = NeoToCFFormatter(report.get_report_title(), config.tenant_id, captured_at)
+                    html_file = reports_dir / f"{report.get_report_name()}.html"
+                    html_formatter.generate_html(data, html_file)
+                    
+                    reports_generated.append(report.get_report_name())
+                    logger.info(f"✓ Generated {report.get_report_title()}")
+                    logger.info(f"  JSON: {json_file}")
+                    logger.info(f"  HTML: {html_file}")
+                except Exception as e:
+                    logger.warning(f"Could not generate NEO to CF Migration Assessment: {e}")
                 
                 logger.info("")
                 logger.info("=" * 70)
@@ -1428,9 +1451,10 @@ def main():
                 from report_generators.report_types import (
                     PackageVersionComparisonReport,
                     EnvironmentVariablesReport,
-                    PackageStatisticsReport
+                    PackageStatisticsReport,
+                    NeoToCFMigrationReport
                 )
-                from report_generators.formatters import HTMLFormatter
+                from report_generators.formatters import HTMLFormatter, NeoToCFFormatter
                 
                 db_path = config.get_database_path(run_timestamp)
                 reports_generated = []
@@ -1504,6 +1528,28 @@ def main():
                     logger.info(f"  HTML: {html_file}")
                 except Exception as e:
                     logger.warning(f"Could not generate Package Statistics report: {e}")
+                
+                # NEO to CF Migration Assessment
+                try:
+                    report = NeoToCFMigrationReport(db_path, config.tenant_id, timestamp_iso)
+                    data = report.generate()
+                    
+                    # Save JSON
+                    json_file = reports_dir / f"{report.get_report_name()}.json"
+                    with open(json_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    
+                    # Save HTML with specialized formatter
+                    html_formatter = NeoToCFFormatter(report.get_report_title(), config.tenant_id, timestamp_iso)
+                    html_file = reports_dir / f"{report.get_report_name()}.html"
+                    html_formatter.generate_html(data, html_file)
+                    
+                    reports_generated.append(report.get_report_name())
+                    logger.info(f"✓ Generated {report.get_report_title()}")
+                    logger.info(f"  JSON: {json_file}")
+                    logger.info(f"  HTML: {html_file}")
+                except Exception as e:
+                    logger.warning(f"Could not generate NEO to CF Migration Assessment: {e}")
                 
                 logger.info("")
                 logger.info("=" * 70)
