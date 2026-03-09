@@ -27,6 +27,7 @@ class NeoToCFMigrationReport(BaseReport):
         metadata = self._generate_metadata()
         dashboard = self._generate_dashboard()
         packages = self._generate_package_analysis()
+        version_comparison = self._generate_version_comparison()
         versions = self._generate_version_deployment()
         systems = self._generate_systems_adapters()
         
@@ -34,6 +35,7 @@ class NeoToCFMigrationReport(BaseReport):
             'metadata': metadata,
             'dashboard': dashboard,
             'packages': packages,
+            'version_comparison': version_comparison,
             'versions': versions,
             'systems': systems
         }
@@ -191,6 +193,67 @@ class NeoToCFMigrationReport(BaseReport):
             'package_distribution': package_distribution,
             'alerts': alerts,
             'top_packages': top_packages
+        }
+    
+    def _generate_version_comparison(self) -> Dict[str, Any]:
+        """Generate Design vs Discover version comparison"""
+        
+        # Try to get Discover version data if available
+        discover_query = """
+        SELECT 
+            PackageID as package_id,
+            PackageName as package_name,
+            CurrentVersion as design_version,
+            DiscoverVersion as discover_version,
+            CASE 
+                WHEN CurrentVersion = DiscoverVersion THEN 'Up-to-date'
+                WHEN DiscoverVersion = 'Manual check needed' THEN 'Manual check needed'
+                ELSE 'Update available'
+            END as status
+        FROM package_discover_version
+        WHERE tenant_id = ?
+        ORDER BY status DESC, package_name
+        """
+        
+        comparison_data = []
+        discover_available = False
+        
+        try:
+            comparison_data = self.execute_query(discover_query, (self.tenant_id,))
+            discover_available = True
+            logger.info(f"  Loaded {len(comparison_data)} package version comparisons from Discover")
+        except:
+            logger.info("  Discover version data not available")
+            # Fallback: Get package list without Discover versions
+            fallback_query = """
+            SELECT 
+                p.Id as package_id,
+                p.Name as package_name,
+                p.Vendor as vendor,
+                p.Version as design_version,
+                'N/A' as discover_version,
+                'No Discover data' as status,
+                p.ModifiedDate as last_modified
+            FROM package p
+            WHERE p.tenant_id = ?
+            AND p.Vendor IS NOT NULL 
+            AND p.Vendor != ''
+            ORDER BY p.Name
+            """
+            comparison_data = self.execute_query(fallback_query, (self.tenant_id,))
+        
+        # Calculate statistics
+        stats = {
+            'total_packages': len(comparison_data),
+            'up_to_date': len([p for p in comparison_data if p['status'] == 'Up-to-date']),
+            'updates_available': len([p for p in comparison_data if p['status'] == 'Update available']),
+            'manual_check': len([p for p in comparison_data if p['status'] in ['Manual check needed', 'No Discover data']]),
+            'discover_available': discover_available
+        }
+        
+        return {
+            'comparisons': comparison_data,
+            'stats': stats
         }
     
     def _generate_package_analysis(self) -> Dict[str, Any]:
