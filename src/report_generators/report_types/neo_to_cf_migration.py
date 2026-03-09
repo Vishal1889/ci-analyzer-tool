@@ -88,14 +88,13 @@ class NeoToCFMigrationReport(BaseReport):
             (self.tenant_id,)
         ) or 0
         
-        # Get unique systems count
+        # Get unique systems count from bpmn_channel table
         systems_query = """
-        SELECT COUNT(DISTINCT LOWER(TRIM(cp.property_value))) as unique_systems
-        FROM bpmn_channel_property cp
-        WHERE cp.tenant_id = ?
-        AND cp.property_name IN ('address', 'Address', 'targetAddress')
-        AND cp.property_value IS NOT NULL
-        AND TRIM(cp.property_value) != ''
+        SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(address, system)))) as unique_systems
+        FROM bpmn_channel
+        WHERE tenant_id = ?
+        AND (address IS NOT NULL OR system IS NOT NULL)
+        AND TRIM(COALESCE(address, system, '')) != ''
         """
         systems_count = self.execute_scalar(systems_query, (self.tenant_id,)) or 0
         
@@ -302,38 +301,34 @@ class NeoToCFMigrationReport(BaseReport):
     def _generate_systems_adapters(self) -> Dict[str, Any]:
         """Generate systems and adapter analysis"""
         
-        # Unique systems with adapter details
+        # Unique systems with adapter details from bpmn_channel table
         systems_query = """
         SELECT DISTINCT
-            TRIM(LOWER(cp.property_value)) as system_id,
-            cp.property_value as system_name,
-            c.AdapterType as adapter_type,
-            c.Direction as direction,
-            COUNT(DISTINCT c.iflow_id) as usage_count
-        FROM bpmn_channel c
-        INNER JOIN bpmn_channel_property cp ON 
-            c.channel_id = cp.channel_id AND 
-            c.tenant_id = cp.tenant_id
-        WHERE c.tenant_id = ?
-        AND cp.property_name IN ('address', 'Address', 'targetAddress')
-        AND cp.property_value IS NOT NULL
-        AND TRIM(cp.property_value) != ''
-        GROUP BY TRIM(LOWER(cp.property_value)), cp.property_value, c.AdapterType, c.Direction
+            TRIM(LOWER(COALESCE(address, system))) as system_id,
+            COALESCE(address, system) as system_name,
+            componentType as adapter_type,
+            type as direction,
+            COUNT(DISTINCT iflowId) as usage_count
+        FROM bpmn_channel
+        WHERE tenant_id = ?
+        AND (address IS NOT NULL OR system IS NOT NULL)
+        AND TRIM(COALESCE(address, system, '')) != ''
+        GROUP BY TRIM(LOWER(COALESCE(address, system))), COALESCE(address, system), componentType, type
         ORDER BY usage_count DESC, system_name
         """
         systems = self.execute_query(systems_query, (self.tenant_id,))
         
-        # Adapter type distribution
+        # Adapter type distribution using correct column names
         adapter_query = """
         SELECT 
-            AdapterType as adapter_type,
-            SUM(CASE WHEN Direction = 'Sender' THEN 1 ELSE 0 END) as sender_count,
-            SUM(CASE WHEN Direction = 'Receiver' THEN 1 ELSE 0 END) as receiver_count,
+            componentType as adapter_type,
+            SUM(CASE WHEN type LIKE '%Sender%' THEN 1 ELSE 0 END) as sender_count,
+            SUM(CASE WHEN type LIKE '%Receiver%' THEN 1 ELSE 0 END) as receiver_count,
             COUNT(*) as total_count
         FROM bpmn_channel
         WHERE tenant_id = ?
-        AND AdapterType IS NOT NULL
-        GROUP BY AdapterType
+        AND componentType IS NOT NULL
+        GROUP BY componentType
         ORDER BY total_count DESC
         """
         adapters = self.execute_query(adapter_query, (self.tenant_id,))
