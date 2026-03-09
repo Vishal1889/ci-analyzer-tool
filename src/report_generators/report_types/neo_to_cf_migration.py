@@ -275,6 +275,7 @@ class NeoToCFMigrationReport(BaseReport):
         """Generate detailed package analysis"""
         
         # Package details with artifact counts
+        # Using same logic as Dashboard for package type classification
         query = """
         SELECT 
             p.Id as package_id,
@@ -285,7 +286,8 @@ class NeoToCFMigrationReport(BaseReport):
             p.ShortText as description,
             CASE 
                 WHEN p.Mode = 'READ_ONLY' THEN 'Standard (Configure-Only)'
-                WHEN p.PartnerContent = 1 OR LOWER(p.Vendor) LIKE '%sap%' THEN 'Standard (Editable)'
+                WHEN p.Mode != 'READ_ONLY' AND (p.PartnerContent = 1 OR LOWER(p.Vendor) LIKE '%sap%') THEN 'Standard (Editable)'
+                WHEN p.Mode != 'READ_ONLY' AND (p.PartnerContent != 1 OR p.PartnerContent IS NULL) AND (LOWER(p.Vendor) NOT LIKE '%sap%' OR p.Vendor IS NULL OR TRIM(p.Vendor) = '') THEN 'Custom'
                 ELSE 'Custom'
             END as package_type,
             COUNT(DISTINCT i.Id) as iflow_count,
@@ -300,7 +302,7 @@ class NeoToCFMigrationReport(BaseReport):
         LEFT JOIN message_mapping mm ON p.Id = mm.PackageId AND p.tenant_id = mm.tenant_id
         LEFT JOIN value_mapping vm ON p.Id = vm.PackageId AND p.tenant_id = vm.tenant_id
         WHERE p.tenant_id = ?
-        GROUP BY p.Id, p.Name, p.Vendor, p.Mode, p.Version, p.ShortText
+        GROUP BY p.Id, p.Name, p.Vendor, p.Mode, p.Version, p.ShortText, p.PartnerContent
         ORDER BY total_artifacts DESC, p.Name
         """
         
