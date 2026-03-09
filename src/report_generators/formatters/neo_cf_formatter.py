@@ -69,6 +69,9 @@ class NeoToCFFormatter:
 {self._generate_tab_version_comparison(data)}
 {self._generate_tab_deployment_status(data)}
 {self._generate_tab_systems_adapters(data)}
+{self._generate_tab_environment_variables(data)}
+{self._generate_tab_certificate_mappings(data)}
+{self._generate_tab_keystore(data)}
         </div>
         
         <!-- Footer -->
@@ -581,6 +584,24 @@ class NeoToCFFormatter:
                     🌐 Systems & Adapters
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="envvars-tab" data-bs-toggle="tab" 
+                        data-bs-target="#envvars" type="button" role="tab">
+                    🔧 Environment Variables
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="certmappings-tab" data-bs-toggle="tab" 
+                        data-bs-target="#certmappings" type="button" role="tab">
+                    🔐 Certificate Mappings
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="keystore-tab" data-bs-toggle="tab" 
+                        data-bs-target="#keystore" type="button" role="tab">
+                    🔑 Keystore
+                </button>
+            </li>
         </ul>"""
     
     def _generate_stacked_bar(self, data_items: list, title: str) -> str:
@@ -1038,6 +1059,292 @@ class NeoToCFFormatter:
         
         return html
     
+    def _generate_tab_environment_variables(self, data: Dict[str, Any]) -> str:
+        """Generate environment variables tab"""
+        env_vars_data = data.get('environment_variables', {})
+        
+        if not env_vars_data.get('available', False):
+            return """            <div class="tab-pane fade" id="envvars" role="tabpanel">
+                <div class="alert-box alert-info">
+                    <strong>Note:</strong> Environment variable data is not available. This feature requires PARSE_BPMN_CONTENT=true and EXTRACT_IFLOW_CONTENT=true in configuration.
+                </div>
+            </div>"""
+        
+        variables = env_vars_data.get('variables', [])
+        stats = env_vars_data.get('stats', {})
+        by_file_type = stats.get('by_file_type', {})
+        by_parent_type = stats.get('by_parent_type', {})
+        
+        html = f"""            <div class="tab-pane fade" id="envvars" role="tabpanel">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{stats.get('total_variables', 0)}</div>
+                            <div class="kpi-label">Unique HC_ Variables</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{stats.get('total_files', 0)}</div>
+                            <div class="kpi-label">Files Using Variables</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{by_file_type.get('groovyScript', 0)}</div>
+                            <div class="kpi-label">Groovy Scripts</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{by_file_type.get('xslt', 0) + by_file_type.get('javaScript', 0)}</div>
+                            <div class="kpi-label">XSLT + JavaScript</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="content-card">
+                    <h3>🔧 Environment Variables Usage</h3>
+                    <table class="table table-sm table-hover dataTable" id="envVarsTable">
+                        <thead>
+                            <tr>
+                                <th>Variable Name</th>
+                                <th class="text-center">Files Using</th>
+                                <th>File Types</th>
+                                <th>Parent Types</th>
+                            </tr>
+                        </thead>
+                        <tbody>"""
+        
+        for var in variables:
+            html += f"""
+                            <tr>
+                                <td><code>{var.get('variable_name', 'Unknown')}</code></td>
+                                <td class="text-center"><strong>{var.get('file_count', 0)}</strong></td>
+                                <td>{var.get('file_types', 'N/A')}</td>
+                                <td>{var.get('parent_types', 'N/A')}</td>
+                            </tr>"""
+        
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+            </div>"""
+        
+        return html
+    
+    def _generate_tab_certificate_mappings(self, data: Dict[str, Any]) -> str:
+        """Generate certificate-to-user mappings tab (NEO only)"""
+        cert_data = data.get('certificate_mappings', {})
+        
+        if not cert_data.get('available', False):
+            return """            <div class="tab-pane fade" id="certmappings" role="tabpanel">
+                <div class="alert-box alert-info">
+                    <strong>Note:</strong> Certificate-to-user mappings are not available. This feature is only available for NEO subaccounts. CF subaccounts use different authentication mechanisms.
+                </div>
+            </div>"""
+        
+        mappings = cert_data.get('mappings', [])
+        stats = cert_data.get('stats', {})
+        
+        html = f"""            <div class="tab-pane fade" id="certmappings" role="tabpanel">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{stats.get('total_mappings', 0)}</div>
+                            <div class="kpi-label">Total Mappings</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-green);">
+                            <div class="kpi-number" style="color: var(--sap-green);">{stats.get('active', 0)}</div>
+                            <div class="kpi-label">✅ Active</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-orange);">
+                            <div class="kpi-number" style="color: var(--sap-orange);">{stats.get('expiring_soon', 0)}</div>
+                            <div class="kpi-label">⚠️ Expiring Soon</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-red);">
+                            <div class="kpi-number" style="color: var(--sap-red);">{stats.get('expired', 0)}</div>
+                            <div class="kpi-label">🔴 Expired</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="content-card">
+                    <h3>🔐 Certificate-to-User Mappings</h3>
+                    <table class="table table-sm table-hover dataTable" id="certMappingsTable">
+                        <thead>
+                            <tr>
+                                <th>Certificate Subject</th>
+                                <th>Issued By</th>
+                                <th>Mapped User</th>
+                                <th class="text-center">Valid From</th>
+                                <th class="text-center">Valid Until</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>"""
+        
+        for mapping in mappings:
+            status = mapping.get('status', 'Unknown')
+            status_class = 'status-inSync' if status == 'Active' else ('status-outofSync' if status == 'Expiring Soon' else 'status-notDeployed')
+            
+            # Extract CN from Subject and Issuer
+            subject_cn = self._extract_cn_for_display(mapping.get('IssuedTo', ''))
+            issuer_cn = self._extract_cn_for_display(mapping.get('IssuedBy', ''))
+            
+            valid_from = mapping.get('ValidFrom', 'N/A')[:10] if mapping.get('ValidFrom') else 'N/A'
+            valid_to = mapping.get('ValidTo', 'N/A')[:10] if mapping.get('ValidTo') else 'N/A'
+            
+            html += f"""
+                            <tr>
+                                <td title="{mapping.get('IssuedTo', '')}">{subject_cn}</td>
+                                <td title="{mapping.get('IssuedBy', '')}">{issuer_cn}</td>
+                                <td>{mapping.get('User', 'Unknown')}</td>
+                                <td class="text-center">{valid_from}</td>
+                                <td class="text-center">{valid_to}</td>
+                                <td class="text-center"><span class="status-badge {status_class}">{status}</span></td>
+                            </tr>"""
+        
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+            </div>"""
+        
+        return html
+    
+    def _generate_tab_keystore(self, data: Dict[str, Any]) -> str:
+        """Generate keystore view tab"""
+        keystore_data = data.get('keystore', {})
+        entries = keystore_data.get('entries', [])
+        stats = keystore_data.get('stats', {})
+        by_type = stats.get('by_type', {})
+        by_key_type = stats.get('by_key_type', {})
+        
+        html = f"""            <div class="tab-pane fade" id="keystore" role="tabpanel">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{stats.get('total_entries', 0)}</div>
+                            <div class="kpi-label">Total Entries</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-green);">
+                            <div class="kpi-number" style="color: var(--sap-green);">{stats.get('active', 0)}</div>
+                            <div class="kpi-label">✅ Active</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-orange);">
+                            <div class="kpi-number" style="color: var(--sap-orange);">{stats.get('expiring_soon', 0)}</div>
+                            <div class="kpi-label">⚠️ Expiring Soon</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-red);">
+                            <div class="kpi-number" style="color: var(--sap-red);">{stats.get('expired', 0)}</div>
+                            <div class="kpi-label">🔴 Expired</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="content-card">
+                            <h3>📊 By Type</h3>
+                            <ul class="list-unstyled">"""
+        
+        for entry_type, count in by_type.items():
+            html += f"""
+                                <li><strong>{entry_type}:</strong> {count}</li>"""
+        
+        html += """
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="content-card">
+                            <h3>🔑 By Key Type</h3>
+                            <ul class="list-unstyled">"""
+        
+        for key_type, count in by_key_type.items():
+            html += f"""
+                                <li><strong>{key_type}:</strong> {count}</li>"""
+        
+        html += """
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="content-card">
+                    <h3>🔑 Keystore Entries</h3>
+                    <table class="table table-sm table-hover dataTable" id="keystoreTable">
+                        <thead>
+                            <tr>
+                                <th>Alias</th>
+                                <th>Type</th>
+                                <th>Subject</th>
+                                <th>Issuer</th>
+                                <th class="text-center">Valid From</th>
+                                <th class="text-center">Valid Until</th>
+                                <th class="text-center">Key Type</th>
+                                <th class="text-center">Key Size</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>"""
+        
+        for entry in entries:
+            status = entry.get('status', 'Unknown')
+            status_class = 'status-inSync' if status == 'Active' else ('status-outofSync' if status == 'Expiring Soon' else 'status-notDeployed')
+            
+            subject_cn = entry.get('subject_cn', 'Unknown')
+            issuer_cn = entry.get('issuer_cn', 'Unknown')
+            
+            html += f"""
+                            <tr>
+                                <td>{entry.get('Alias', 'Unknown')}</td>
+                                <td>{entry.get('Type', 'Unknown')}</td>
+                                <td title="{entry.get('SubjectDN', '')}">{subject_cn}</td>
+                                <td title="{entry.get('IssuerDN', '')}">{issuer_cn}</td>
+                                <td class="text-center">{entry.get('valid_from_formatted', 'N/A')}</td>
+                                <td class="text-center">{entry.get('valid_until_formatted', 'N/A')}</td>
+                                <td class="text-center">{entry.get('KeyType', 'N/A')}</td>
+                                <td class="text-center">{entry.get('KeySize', 'N/A')}</td>
+                                <td class="text-center"><span class="status-badge {status_class}">{status}</span></td>
+                            </tr>"""
+        
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+            </div>"""
+        
+        return html
+    
+    def _extract_cn_for_display(self, dn: str) -> str:
+        """Extract CN from Distinguished Name for display"""
+        if not dn:
+            return 'Unknown'
+        
+        # Look for CN= in the DN string
+        parts = dn.split(',')
+        for part in parts:
+            part = part.strip()
+            if part.startswith('CN='):
+                return part[3:]  # Remove 'CN=' prefix
+        
+        # If no CN found, return first 50 chars
+        return dn[:50] + '...' if len(dn) > 50 else dn
+    
     def _generate_footer(self, data: Dict[str, Any]) -> str:
         """Generate report footer"""
         metadata = data.get('metadata', {})
@@ -1105,6 +1412,18 @@ class NeoToCFFormatter:
             
             $('#adaptersTable').DataTable($.extend({}, commonConfig, {
                 order: [[3, 'desc']]
+            }));
+            
+            $('#envVarsTable').DataTable($.extend({}, commonConfig, {
+                order: [[1, 'desc'], [0, 'asc']]
+            }));
+            
+            $('#certMappingsTable').DataTable($.extend({}, commonConfig, {
+                order: [[5, 'desc'], [4, 'asc']]
+            }));
+            
+            $('#keystoreTable').DataTable($.extend({}, commonConfig, {
+                order: [[8, 'desc'], [5, 'asc']]
             }));
         });
     </script>"""
