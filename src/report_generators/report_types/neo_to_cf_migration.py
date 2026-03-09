@@ -334,13 +334,16 @@ class NeoToCFMigrationReport(BaseReport):
         SELECT 
             i.Id as artifact_id,
             i.Name as artifact_name,
-            'IFlow' as artifact_type,
+            'Integration Flow' as artifact_type,
             p.Name as package_name,
-            i.Version as design_version,
+            CASE 
+                WHEN i.Version = 'Active' THEN 'Draft'
+                ELSE i.Version
+            END as design_version,
             r.Version as runtime_version,
             CASE 
                 WHEN r.Id IS NULL THEN 'Not Deployed'
-                WHEN i.Version = r.Version THEN 'Synced'
+                WHEN i.Version = r.Version THEN 'In Sync'
                 ELSE 'Out of Sync'
             END as deployment_status,
             i.ModifiedAt as last_modified
@@ -354,7 +357,7 @@ class NeoToCFMigrationReport(BaseReport):
         
         # Calculate deployment statistics
         deployment_stats = {
-            'synced': len([d for d in iflow_deployments if d['deployment_status'] == 'Synced']),
+            'synced': len([d for d in iflow_deployments if d['deployment_status'] == 'In Sync']),
             'out_of_sync': len([d for d in iflow_deployments if d['deployment_status'] == 'Out of Sync']),
             'not_deployed': len([d for d in iflow_deployments if d['deployment_status'] == 'Not Deployed'])
         }

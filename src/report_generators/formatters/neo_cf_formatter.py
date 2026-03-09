@@ -317,7 +317,7 @@ class NeoToCFFormatter:
         .status-uptodate {{ background-color: #E6F4EA; color: var(--sap-green); }}
         .status-updateavailable {{ background-color: #FFF4E5; color: var(--sap-orange); }}
         .status-manualcheck {{ background-color: #F5F5F5; color: var(--sap-text-gray); }}
-        .status-synced {{ background-color: #E6F4EA; color: var(--sap-green); }}
+        .status-inSync {{ background-color: #E6F4EA; color: var(--sap-green); }}
         .status-outofSync {{ background-color: #FFF4E5; color: var(--sap-orange); }}
         .status-notDeployed {{ background-color: #F5F5F5; color: var(--sap-text-gray); }}
         
@@ -905,8 +905,9 @@ class NeoToCFFormatter:
                     <table class="table table-sm table-hover dataTable" id="deploymentsTable">
                         <thead>
                             <tr>
-                                <th>Artifact</th>
-                                <th>Package</th>
+                                <th>Artifact Name</th>
+                                <th>Type</th>
+                                <th>Package Name</th>
                                 <th class="text-center">Design Version</th>
                                 <th class="text-center">Runtime Version</th>
                                 <th class="text-center">Status</th>
@@ -916,11 +917,12 @@ class NeoToCFFormatter:
         
         for dep in deployments:
             status = dep.get('deployment_status', 'Unknown')
-            status_class = 'status-synced' if status == 'Synced' else ('status-outofSync' if status == 'Out of Sync' else 'status-notDeployed')
+            status_class = 'status-inSync' if status == 'In Sync' else ('status-outofSync' if status == 'Out of Sync' else 'status-notDeployed')
             
             html += f"""
                             <tr>
                                 <td>{dep.get('artifact_name', 'Unknown')}</td>
+                                <td>{dep.get('artifact_type', 'Unknown')}</td>
                                 <td>{dep.get('package_name', 'Unknown')}</td>
                                 <td class="text-center">{dep.get('design_version', 'N/A')}</td>
                                 <td class="text-center">{dep.get('runtime_version') or 'N/A'}</td>
