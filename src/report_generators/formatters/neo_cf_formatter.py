@@ -1087,31 +1087,31 @@ class NeoToCFFormatter:
         
         html = f"""            <div class="tab-pane fade" id="envvars" role="tabpanel">
                 <div class="row g-3 mb-4">
-                    <div class="col-lg-2 col-md-4 col-sm-6">
+                    <div class="col-xl-2 col-md-4 col-sm-6">
                         <div class="kpi-card">
                             <div class="kpi-number">{unique_vars_count}</div>
                             <div class="kpi-label">Unique HC_ Variables</div>
                         </div>
                     </div>
-                    <div class="col-lg-2 col-md-4 col-sm-6">
+                    <div class="col-xl-2 col-md-4 col-sm-6">
                         <div class="kpi-card">
                             <div class="kpi-number">{stats.get('total_files', 0)}</div>
                             <div class="kpi-label">Total Files</div>
                         </div>
                     </div>
-                    <div class="col-lg-3 col-md-4 col-sm-6">
+                    <div class="col-xl-2 col-md-4 col-sm-6">
                         <div class="kpi-card">
                             <div class="kpi-number">{by_file_type.get('groovyScript', 0)}</div>
                             <div class="kpi-label">Groovy Scripts</div>
                         </div>
                     </div>
-                    <div class="col-lg-2 col-md-6 col-sm-6">
+                    <div class="col-xl-3 col-md-6 col-sm-6">
                         <div class="kpi-card">
                             <div class="kpi-number">{by_file_type.get('javascript', 0)}</div>
                             <div class="kpi-label">JavaScript Files</div>
                         </div>
                     </div>
-                    <div class="col-lg-3 col-md-6 col-sm-6">
+                    <div class="col-xl-3 col-md-6 col-sm-6">
                         <div class="kpi-card">
                             <div class="kpi-number">{by_file_type.get('xslt', 0)}</div>
                             <div class="kpi-label">XSLT Files</div>
