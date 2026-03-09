@@ -355,7 +355,7 @@ class NeoToCFMigrationReport(BaseReport):
         UNION ALL
         
         SELECT 
-            sc.Name as artifact_id,
+            sc.Id as artifact_id,
             sc.Name as artifact_name,
             'Script Collection' as artifact_type,
             p.Name as package_name,
@@ -372,7 +372,7 @@ class NeoToCFMigrationReport(BaseReport):
             NULL as last_modified
         FROM script_collection sc
         INNER JOIN package p ON sc.PackageId = p.Id AND sc.tenant_id = p.tenant_id
-        LEFT JOIN runtime r ON sc.Name = r.Id AND sc.tenant_id = r.tenant_id
+        LEFT JOIN runtime r ON sc.Id = r.Id AND r.Type = 'SCRIPT_COLLECTION' AND sc.tenant_id = r.tenant_id
         WHERE sc.tenant_id = ?
         
         UNION ALL
@@ -395,7 +395,7 @@ class NeoToCFMigrationReport(BaseReport):
             NULL as last_modified
         FROM message_mapping mm
         INNER JOIN package p ON mm.PackageId = p.Id AND mm.tenant_id = p.tenant_id
-        LEFT JOIN runtime r ON mm.Id = r.Id AND mm.tenant_id = r.tenant_id
+        LEFT JOIN runtime r ON mm.Id = r.Id AND r.Type = 'MESSAGE_MAPPING' AND mm.tenant_id = r.tenant_id
         WHERE mm.tenant_id = ?
         
         UNION ALL
@@ -418,7 +418,7 @@ class NeoToCFMigrationReport(BaseReport):
             NULL as last_modified
         FROM value_mapping vm
         INNER JOIN package p ON vm.PackageId = p.Id AND vm.tenant_id = p.tenant_id
-        LEFT JOIN runtime r ON vm.Id = r.Id AND vm.tenant_id = r.tenant_id
+        LEFT JOIN runtime r ON vm.Id = r.Id AND r.Type = 'VALUE_MAPPING' AND vm.tenant_id = r.tenant_id
         WHERE vm.tenant_id = ?
         
         ORDER BY deployment_status DESC, package_name, artifact_name
