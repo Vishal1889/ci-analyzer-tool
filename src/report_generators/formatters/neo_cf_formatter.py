@@ -566,7 +566,7 @@ class NeoToCFFormatter:
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="versions-tab" data-bs-toggle="tab" 
                         data-bs-target="#versions" type="button" role="tab">
-                    🔄 Version Comparison
+                    📋 Standard Content Analysis
                 </button>
             </li>
             <li class="nav-item" role="presentation">
@@ -830,13 +830,13 @@ class NeoToCFFormatter:
         
         html += """
                 <div class="content-card">
-                    <h3>🔄 Package Version Comparison (Design vs Discover)</h3>
+                    <h3>📋 Standard Package Version Comparison</h3>
                     <table class="table table-sm table-hover dataTable" id="versionCompTable">
                         <thead>
                             <tr>
                                 <th>Package Name</th>
-                                <th class="text-center">Current Version</th>
-                                <th class="text-center">Latest Version</th>
+                                <th class="text-center">Current Version (Design)</th>
+                                <th class="text-center">Latest Version (Discover)</th>
                                 <th class="text-center">Status</th>
                             </tr>
                         </thead>
