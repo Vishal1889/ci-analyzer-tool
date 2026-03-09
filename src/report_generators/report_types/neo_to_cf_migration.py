@@ -100,9 +100,14 @@ class NeoToCFMigrationReport(BaseReport):
         """
         systems_count = self.execute_scalar(systems_query, (self.tenant_id,)) or 0
         
-        # Calculate migration readiness score (simplified)
+        # Calculate migration readiness score based on multiple factors
         total_artifacts = iflow_count + script_count + msg_map_count + val_map_count
-        readiness_score = 85  # Placeholder - can be calculated based on various factors
+        readiness_score = self._calculate_readiness_score(
+            pkg_data=pkg_data,
+            iflow_count=iflow_count,
+            total_artifacts=total_artifacts,
+            systems_count=systems_count
+        )
         
         # Get critical alerts
         alerts = []
@@ -408,6 +413,133 @@ class NeoToCFMigrationReport(BaseReport):
             'adapters': adapters,
             'stats': stats
         }
+    
+    def _calculate_readiness_score(self, pkg_data: Dict, iflow_count: int, 
+                                   total_artifacts: int, systems_count: int) -> int:
+        """
+        Calculate migration readiness score (0-100) based on multiple factors
+        
+        Scoring Methodology:
+        1. Package Composition (30 points):
+           - Standard Read-Only packages are easiest to migrate (30 points)
+           - Standard Editable packages need configuration review (20 points)
+           - Custom packages require thorough analysis (10 points)
+        
+        2. Deployment Status (25 points):
+           - High deployment sync rate indicates stability
+           - Measures design vs runtime alignment
+        
+        3. Version Currency (20 points):
+           - Recent modifications suggest active maintenance
+           - Packages not modified in 6+ months may need review
+        
+        4. Complexity (15 points):
+           - Fewer artifacts per package = simpler migration
+           - Complexity penalty for high artifact counts
+        
+        5. Integration Density (10 points):
+           - Fewer unique systems = simpler connectivity migration
+           - System count vs artifact ratio
+        
+        Returns:
+            int: Readiness score between 0-100
+        """
+        score = 0.0
+        
+        # 1. Package Composition Score (30 points max)
+        total_packages = pkg_data.get('total_packages', 0)
+        if total_packages > 0:
+            standard_readonly = pkg_data.get('standard_readonly', 0)
+            standard_editable = pkg_data.get('standard_editable', 0)
+            custom_packages = pkg_data.get('custom_packages', 0)
+            
+            # Weighted scoring: Read-Only=1.0, Editable=0.67, Custom=0.33
+            composition_score = (
+                (standard_readonly * 1.0) +
+                (standard_editable * 0.67) +
+                (custom_packages * 0.33)
+            ) / total_packages
+            score += composition_score * 30
+            
+            logger.debug(f"  Package Composition: {composition_score * 30:.1f}/30 points")
+        
+        # 2. Deployment Status Score (25 points max)
+        if iflow_count > 0:
+            # Get deployment sync data
+            deploy_query = """
+            SELECT 
+                SUM(CASE WHEN r.Id IS NOT NULL AND i.Version = r.Version THEN 1 ELSE 0 END) as synced,
+                COUNT(*) as total
+            FROM iflow i
+            LEFT JOIN runtime r ON i.Id = r.Id AND i.tenant_id = r.tenant_id
+            WHERE i.tenant_id = ?
+            """
+            deploy_stats = self.execute_query(deploy_query, (self.tenant_id,))
+            if deploy_stats:
+                synced = deploy_stats[0].get('synced', 0)
+                total = deploy_stats[0].get('total', 1)
+                sync_ratio = synced / total if total > 0 else 0
+                deployment_score = sync_ratio * 25
+                score += deployment_score
+                logger.debug(f"  Deployment Sync: {deployment_score:.1f}/25 points ({synced}/{total} synced)")
+        
+        # 3. Version Currency Score (20 points max)
+        if total_packages > 0:
+            # Check how many packages are recently modified (within 180 days)
+            recent_query = """
+            SELECT COUNT(*) 
+            FROM package 
+            WHERE tenant_id = ? 
+            AND ModifiedDate >= date('now', '-180 days')
+            """
+            recent_count = self.execute_scalar(recent_query, (self.tenant_id,)) or 0
+            currency_ratio = recent_count / total_packages
+            currency_score = currency_ratio * 20
+            score += currency_score
+            logger.debug(f"  Version Currency: {currency_score:.1f}/20 points ({recent_count}/{total_packages} recently modified)")
+        
+        # 4. Complexity Score (15 points max)
+        if total_packages > 0 and total_artifacts > 0:
+            avg_artifacts = total_artifacts / total_packages
+            # Lower complexity is better: score inversely proportional to artifact count
+            # Assume baseline of 5 artifacts/package as "simple"
+            # 1-5 artifacts = full points, 6-10 = reduced, 11+ = further reduced
+            if avg_artifacts <= 5:
+                complexity_score = 15
+            elif avg_artifacts <= 10:
+                complexity_score = 15 * (1 - ((avg_artifacts - 5) / 10))
+            else:
+                complexity_score = 15 * (1 - ((avg_artifacts - 5) / 20))
+            
+            complexity_score = max(0, complexity_score)  # Ensure non-negative
+            score += complexity_score
+            logger.debug(f"  Complexity: {complexity_score:.1f}/15 points (avg {avg_artifacts:.1f} artifacts/package)")
+        
+        # 5. Integration Density Score (10 points max)
+        if total_artifacts > 0:
+            # Lower system-to-artifact ratio is better (more reuse)
+            if systems_count == 0:
+                integration_score = 10  # No external systems = simplest
+            else:
+                system_ratio = systems_count / total_artifacts
+                # Ideal ratio: < 0.5 systems per artifact
+                if system_ratio <= 0.5:
+                    integration_score = 10
+                elif system_ratio <= 1.0:
+                    integration_score = 10 * (1 - ((system_ratio - 0.5) / 0.5))
+                else:
+                    integration_score = 5 * (1 / system_ratio)
+                
+                integration_score = min(10, max(0, integration_score))
+            
+            score += integration_score
+            logger.debug(f"  Integration Density: {integration_score:.1f}/10 points ({systems_count} systems for {total_artifacts} artifacts)")
+        
+        # Round to nearest integer
+        final_score = round(score)
+        logger.info(f"  Migration Readiness Score: {final_score}/100")
+        
+        return final_score
     
     def get_summary_metrics(self) -> Dict[str, Any]:
         """Get summary metrics for dashboard"""
