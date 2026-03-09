@@ -1,39 +1,40 @@
 """
 NEO to CF Migration Assessment Report Formatter
-Modern tabbed HTML report with SAP BTP theme
+SAP BTP themed HTML report generator with compact design
 """
 
 from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime
-import json
 
 
 class NeoToCFFormatter:
-    """Generate modern tabbed HTML report for NEO to CF migration assessment"""
+    """Generates SAP BTP themed HTML report for NEO to CF migration assessment"""
+    
+    # SAP BTP Color Scheme (from Cloud Transport Management)
+    COLORS = {
+        'primary_blue': '#0A6ED1',
+        'dark_blue': '#0854A0',
+        'light_blue': '#EDF5FA',
+        'success_green': '#2E844A',
+        'warning_orange': '#F0AB00',
+        'error_red': '#E52929',
+        'text_dark': '#32363A',
+        'text_gray': '#6A6D70',
+        'border_gray': '#E5E5E5',
+        'background': '#F7F7F7',
+        'white': '#FFFFFF'
+    }
     
     def __init__(self, report_title: str, tenant_id: str, captured_at: str):
         self.report_title = report_title
         self.tenant_id = tenant_id
         self.captured_at = captured_at
     
-    def generate_html(self, report_data: Dict[str, Any], output_file: Path) -> None:
-        """Generate standalone HTML report with embedded resources"""
-        html_content = self._create_html_document(report_data)
+    def generate_html(self, data: Dict[str, Any], output_file: Path):
+        """Generate complete HTML report"""
         
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-    
-    def _create_html_document(self, report_data: Dict[str, Any]) -> str:
-        """Create complete HTML document with SAP BTP theme"""
-        
-        metadata = report_data.get('metadata', {})
-        dashboard = report_data.get('dashboard', {})
-        packages = report_data.get('packages', {})
-        versions = report_data.get('versions', {})
-        systems = report_data.get('systems', {})
-        
-        return f"""<!DOCTYPE html>
+        html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -45,143 +46,194 @@ class NeoToCFFormatter:
     
     <!-- DataTables CSS -->
     <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
-    <link href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css" rel="stylesheet">
     
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     
     <style>
-        /* SAP BTP Color Scheme */
+{self._generate_css()}
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- Header -->
+{self._generate_header(data)}
+        
+        <!-- Navigation Tabs -->
+{self._generate_tabs()}
+        
+        <!-- Tab Content -->
+        <div class="tab-content" id="reportTabContent">
+{self._generate_tab_executive_summary(data)}
+{self._generate_tab_package_analysis(data)}
+{self._generate_tab_version_comparison(data)}
+{self._generate_tab_deployment_status(data)}
+{self._generate_tab_systems_adapters(data)}
+        </div>
+        
+        <!-- Footer -->
+{self._generate_footer(data)}
+    </div>
+    
+    <!-- JavaScript -->
+{self._generate_javascript(data)}
+</body>
+</html>"""
+        
+        # Write to file
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+    
+    def _generate_css(self) -> str:
+        """Generate SAP BTP themed CSS"""
+        return f"""
+        /* SAP BTP Theme */
         :root {{
-            --sap-blue: #0070F2;
-            --sap-dark-blue: #0040B0;
-            --sap-light-blue: #E8F3FF;
-            --sap-green: #0F7D0F;
-            --sap-orange: #E76500;
-            --sap-red: #BB0000;
-            --sap-gray: #5E696E;
-            --sap-light-gray: #F5F5F5;
+            --sap-blue: {self.COLORS['primary_blue']};
+            --sap-dark-blue: {self.COLORS['dark_blue']};
+            --sap-light-blue: {self.COLORS['light_blue']};
+            --sap-green: {self.COLORS['success_green']};
+            --sap-orange: {self.COLORS['warning_orange']};
+            --sap-red: {self.COLORS['error_red']};
+            --sap-text-dark: {self.COLORS['text_dark']};
+            --sap-text-gray: {self.COLORS['text_gray']};
+            --sap-border: {self.COLORS['border_gray']};
+            --sap-background: {self.COLORS['background']};
         }}
         
         body {{
-            background-color: var(--sap-light-gray);
-            font-family: '72', 'Segoe UI', Tahoma, sans-serif;
-            padding-top: 20px;
-            padding-bottom: 40px;
+            background-color: var(--sap-background);
+            font-family: '72', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            color: var(--sap-text-dark);
+            font-size: 14px;
+            line-height: 1.5;
         }}
         
+        /* Header */
         .report-header {{
-            background: linear-gradient(135deg, var(--sap-blue) 0%, var(--sap-dark-blue) 100%);
+            background-color: var(--sap-blue);
             color: white;
-            padding: 30px;
-            border-radius: 8px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 24px 32px;
+            border-radius: 4px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }}
         
         .report-header h1 {{
-            margin: 0 0 15px 0;
-            font-size: 2rem;
-            font-weight: 300;
+            margin: 0 0 8px 0;
+            font-size: 24px;
+            font-weight: 400;
         }}
         
         .report-meta {{
-            font-size: 0.9rem;
+            font-size: 13px;
             opacity: 0.95;
         }}
         
         /* KPI Cards */
         .kpi-card {{
             background: white;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            transition: transform 0.2s, box-shadow 0.2s;
-            border-left: 4px solid var(--sap-blue);
-        }}
-        
-        .kpi-card:hover {{
-            transform: translateY(-4px);
-            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+            border-radius: 4px;
+            padding: 16px;
+            margin-bottom: 16px;
+            border: 1px solid var(--sap-border);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }}
         
         .kpi-number {{
-            font-size: 2.5rem;
-            font-weight: 700;
+            font-size: 32px;
+            font-weight: 600;
             color: var(--sap-dark-blue);
             margin: 0;
+            line-height: 1.2;
         }}
         
         .kpi-label {{
-            color: var(--sap-gray);
-            font-size: 0.85rem;
+            color: var(--sap-text-gray);
+            font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            margin-top: 5px;
+            margin-top: 4px;
         }}
         
         /* Tabs */
         .nav-tabs {{
-            border-bottom: 2px solid var(--sap-light-blue);
-            margin-bottom: 30px;
+            border-bottom: 1px solid var(--sap-border);
+            margin-bottom: 24px;
         }}
         
         .nav-tabs .nav-link {{
-            color: var(--sap-gray);
+            color: var(--sap-text-gray);
             border: none;
-            padding: 12px 24px;
+            padding: 12px 20px;
             font-weight: 500;
-            transition: all 0.3s;
+            font-size: 14px;
+            border-radius: 4px 4px 0 0;
         }}
         
         .nav-tabs .nav-link:hover {{
             color: var(--sap-blue);
             background-color: var(--sap-light-blue);
-            border: none;
         }}
         
         .nav-tabs .nav-link.active {{
-            color: white;
-            background-color: var(--sap-blue);
-            border: none;
-            border-radius: 8px 8px 0 0;
+            color: var(--sap-blue);
+            background-color: white;
+            border: 1px solid var(--sap-border);
+            border-bottom-color: white;
+            margin-bottom: -1px;
         }}
         
         /* Content Cards */
         .content-card {{
             background: white;
-            border-radius: 8px;
-            padding: 25px;
-            margin-bottom: 25px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-radius: 4px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid var(--sap-border);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }}
         
         .content-card h3 {{
             color: var(--sap-dark-blue);
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid var(--sap-light-blue);
-            font-size: 1.4rem;
-            font-weight: 500;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--sap-light-blue);
+            font-size: 16px;
+            font-weight: 600;
         }}
         
-        /* Charts */
+        /* Charts - Compact Size */
         .chart-container {{
             background: white;
-            border-radius: 8px;
-            padding: 25px;
-            margin-bottom: 25px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            min-height: 350px;
+            border-radius: 4px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid var(--sap-border);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }}
+        
+        .chart-container h4 {{
+            color: var(--sap-dark-blue);
+            margin-bottom: 16px;
+            font-size: 14px;
+            font-weight: 600;
+        }}
+        
+        .chart-wrapper {{
+            position: relative;
+            height: 180px;
+            max-width: 300px;
         }}
         
         /* Alerts */
-        .alert-sap {{
-            border-left: 4px solid;
+        .alert-box {{
+            padding: 12px 16px;
             border-radius: 4px;
-            padding: 15px 20px;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
+            border-left: 3px solid;
+            font-size: 13px;
         }}
         
         .alert-warning {{
@@ -197,67 +249,79 @@ class NeoToCFFormatter:
         }}
         
         /* Status Badges */
-        .badge-custom {{
-            padding: 6px 12px;
-            border-radius: 4px;
+        .status-badge {{
+            padding: 4px 8px;
+            border-radius: 3px;
             font-weight: 500;
-            font-size: 0.85rem;
+            font-size: 12px;
+            display: inline-block;
         }}
         
+        .status-uptodate {{ background-color: #E6F4EA; color: var(--sap-green); }}
+        .status-updateavailable {{ background-color: #FFF4E5; color: var(--sap-orange); }}
+        .status-manualcheck {{ background-color: #F5F5F5; color: var(--sap-text-gray); }}
         .status-synced {{ background-color: #E6F4EA; color: var(--sap-green); }}
         .status-outofSync {{ background-color: #FFF4E5; color: var(--sap-orange); }}
-        .status-notDeployed {{ background-color: #F5F5F5; color: var(--sap-gray); }}
-        .status-current {{ background-color: #E6F4EA; color: var(--sap-green); }}
-        .status-outdated {{ background-color: #FDECEA; color: var(--sap-red); }}
+        .status-notDeployed {{ background-color: #F5F5F5; color: var(--sap-text-gray); }}
         
-        /* DataTables Customization */
+        /* DataTables */
         .dataTables_wrapper {{
-            padding: 0;
-        }}
-        
-        table.dataTable {{
-            border-collapse: collapse !important;
-            font-size: 0.9rem;
+            font-size: 13px;
         }}
         
         table.dataTable thead th {{
             background-color: var(--sap-light-blue);
             color: var(--sap-dark-blue);
             font-weight: 600;
-            border-bottom: 2px solid var(--sap-blue);
+            border-bottom: 1px solid var(--sap-border);
+            padding: 12px 8px;
+        }}
+        
+        table.dataTable tbody tr {{
+            border-bottom: 1px solid var(--sap-border);
         }}
         
         table.dataTable tbody tr:hover {{
             background-color: var(--sap-light-blue) !important;
         }}
         
+        table.dataTable tbody td {{
+            padding: 10px 8px;
+        }}
+        
+        /* Footer */
+        .report-footer {{
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px 0;
+            color: var(--sap-text-gray);
+            font-size: 12px;
+        }}
+        
         /* Responsive */
         @media (max-width: 768px) {{
-            .kpi-number {{ font-size: 2rem; }}
-            .report-header h1 {{ font-size: 1.5rem; }}
+            .kpi-number {{ font-size: 24px; }}
+            .report-header h1 {{ font-size: 20px; }}
         }}
+"""
+    
+    def _generate_header(self, data: Dict[str, Any]) -> str:
+        """Generate report header"""
+        metadata = data.get('metadata', {})
+        captured_date = metadata.get('report_generated_at', self.captured_at)
         
-        /* Print styles */
-        @media print {{
-            .no-print {{ display: none; }}
-            body {{ background: white; }}
-        }}
-    </style>
-</head>
-<body>
-    <div class="container-fluid px-4">
-        <!-- Header -->
-        <div class="report-header">
+        return f"""        <div class="report-header">
             <h1>📊 {self.report_title}</h1>
             <div class="report-meta">
-                <strong>Tenant:</strong> {metadata.get('tenant_id', 'N/A')} &nbsp;|&nbsp;
-                <strong>Extraction Date:</strong> {metadata.get('report_generated_at', 'N/A')} &nbsp;|&nbsp;
+                <strong>Tenant:</strong> {self.tenant_id} &nbsp;|&nbsp;
+                <strong>Extraction Date:</strong> {captured_date} &nbsp;|&nbsp;
                 <strong>Report Version:</strong> {metadata.get('report_version', '1.0')}
             </div>
-        </div>
-        
-        <!-- Navigation Tabs -->
-        <ul class="nav nav-tabs no-print" id="reportTabs" role="tablist">
+        </div>"""
+    
+    def _generate_tabs(self) -> str:
+        """Generate navigation tabs"""
+        return """        <ul class="nav nav-tabs" id="reportTabs" role="tablist">
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" id="dashboard-tab" data-bs-toggle="tab" 
                         data-bs-target="#dashboard" type="button" role="tab">
@@ -273,7 +337,13 @@ class NeoToCFFormatter:
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="versions-tab" data-bs-toggle="tab" 
                         data-bs-target="#versions" type="button" role="tab">
-                    🔄 Version & Deployment
+                    🔄 Version Comparison
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="deployment-tab" data-bs-toggle="tab" 
+                        data-bs-target="#deployment" type="button" role="tab">
+                    📊 Deployment Status
                 </button>
             </li>
             <li class="nav-item" role="presentation">
@@ -282,67 +352,461 @@ class NeoToCFFormatter:
                     🌐 Systems & Adapters
                 </button>
             </li>
-        </ul>
-        
-        <!-- Tab Content -->
-        <div class="tab-content" id="reportTabContent">
-            
-            <!-- Tab 1: Executive Summary / Dashboard -->
-            <div class="tab-pane fade show active" id="dashboard" role="tabpanel">
-                {self._generate_dashboard_tab(dashboard)}
-            </div>
-            
-            <!-- Tab 2: Package Analysis -->
-            <div class="tab-pane fade" id="packages" role="tabpanel">
-                {self._generate_packages_tab(packages)}
-            </div>
-            
-            <!-- Tab 3: Version & Deployment -->
-            <div class="tab-pane fade" id="versions" role="tabpanel">
-                {self._generate_versions_tab(versions)}
-            </div>
-            
-            <!-- Tab 4: Systems & Adapters -->
-            <div class="tab-pane fade" id="systems" role="tabpanel">
-                {self._generate_systems_tab(systems)}
-            </div>
-            
-        </div>
-        
-        <!-- Footer -->
-        <div class="text-center mt-5 mb-3" style="color: var(--sap-gray); font-size: 0.9rem;">
-            <p class="mb-1">SAP Cloud Integration Analyzer Tool</p>
-            <p class="mb-0">Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        </div>
-    </div>
+        </ul>"""
     
-    <!-- Bootstrap 5.3 JS -->
+    def _generate_tab_executive_summary(self, data: Dict[str, Any]) -> str:
+        """Generate executive summary tab"""
+        dashboard = data.get('dashboard', {})
+        kpis = dashboard.get('kpis', {})
+        
+        # KPI Cards
+        kpi_html = f"""            <div class="tab-pane fade show active" id="dashboard" role="tabpanel">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3 col-sm-6">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{kpis.get('total_packages', 0)}</div>
+                            <div class="kpi-label">Total Packages</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{kpis.get('total_artifacts', 0)}</div>
+                            <div class="kpi-label">Total Artifacts</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{kpis.get('unique_systems', 0)}</div>
+                            <div class="kpi-label">Connected Systems</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <div class="kpi-card">
+                            <div class="kpi-number" style="color: var(--sap-green);">{kpis.get('readiness_score', 0)}%</div>
+                            <div class="kpi-label">Migration Readiness</div>
+                        </div>
+                    </div>
+                </div>"""
+        
+        # Alerts
+        alerts = dashboard.get('alerts', [])
+        if alerts:
+            kpi_html += """
+                <div class="content-card">
+                    <h3>🚨 Critical Alerts</h3>"""
+            for alert in alerts:
+                alert_class = 'alert-warning' if alert['type'] == 'warning' else 'alert-info'
+                kpi_html += f"""
+                    <div class="alert-box {alert_class}">{alert['message']}</div>"""
+            kpi_html += """
+                </div>"""
+        
+        # Package Distribution Chart + Top Packages
+        package_dist = dashboard.get('package_distribution', [])
+        top_packages = dashboard.get('top_packages', [])
+        
+        kpi_html += """
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="chart-container">
+                            <h4>Package Distribution</h4>
+                            <div class="chart-wrapper">
+                                <canvas id="packageDistChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="content-card">
+                            <h3>📊 Top 5 Packages by Complexity</h3>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Package</th>
+                                            <th class="text-center">IFlows</th>
+                                            <th class="text-center">Scripts</th>
+                                            <th class="text-center">Mappings</th>
+                                            <th class="text-center">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>"""
+        
+        for pkg in top_packages[:5]:
+            mappings = pkg.get('msg_map_count', 0) + pkg.get('val_map_count', 0)
+            kpi_html += f"""
+                                        <tr>
+                                            <td>{pkg.get('package_name', 'Unknown')}</td>
+                                            <td class="text-center">{pkg.get('iflow_count', 0)}</td>
+                                            <td class="text-center">{pkg.get('script_count', 0)}</td>
+                                            <td class="text-center">{mappings}</td>
+                                            <td class="text-center"><strong>{pkg.get('total_artifacts', 0)}</strong></td>
+                                        </tr>"""
+        
+        kpi_html += """
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>"""
+        
+        return kpi_html
+    
+    def _generate_tab_package_analysis(self, data: Dict[str, Any]) -> str:
+        """Generate package analysis tab"""
+        packages_data = data.get('packages', {})
+        packages = packages_data.get('packages', [])
+        stats = packages_data.get('stats', {})
+        
+        html = f"""            <div class="tab-pane fade" id="packages" role="tabpanel">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{stats.get('total_packages', 0)}</div>
+                            <div class="kpi-label">Total Packages</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{stats.get('total_artifacts', 0)}</div>
+                            <div class="kpi-label">Total Artifacts</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{stats.get('avg_artifacts_per_package', 0)}</div>
+                            <div class="kpi-label">Avg Artifacts/Package</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="content-card">
+                    <h3>📦 Package Details</h3>
+                    <table class="table table-sm table-hover dataTable" id="packagesTable">
+                        <thead>
+                            <tr>
+                                <th>Package Name</th>
+                                <th>Type</th>
+                                <th class="text-center">IFlows</th>
+                                <th class="text-center">Scripts</th>
+                                <th class="text-center">Msg Maps</th>
+                                <th class="text-center">Val Maps</th>
+                                <th class="text-center">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>"""
+        
+        for pkg in packages:
+            badge_class = 'bg-primary' if pkg['package_type'] == 'Custom' else ('bg-success' if 'Read-Only' in pkg['package_type'] else 'bg-secondary')
+            html += f"""
+                            <tr>
+                                <td>{pkg['package_name']}</td>
+                                <td><span class="badge {badge_class}">{pkg['package_type']}</span></td>
+                                <td class="text-center">{pkg['iflow_count']}</td>
+                                <td class="text-center">{pkg['script_count']}</td>
+                                <td class="text-center">{pkg['msg_map_count']}</td>
+                                <td class="text-center">{pkg['val_map_count']}</td>
+                                <td class="text-center"><strong>{pkg['total_artifacts']}</strong></td>
+                            </tr>"""
+        
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+            </div>"""
+        
+        return html
+    
+    def _generate_tab_version_comparison(self, data: Dict[str, Any]) -> str:
+        """Generate version comparison tab (NEW!)"""
+        version_comp = data.get('version_comparison', {})
+        comparisons = version_comp.get('comparisons', [])
+        stats = version_comp.get('stats', {})
+        discover_available = version_comp.get('stats', {}).get('discover_available', False)
+        
+        html = f"""            <div class="tab-pane fade" id="versions" role="tabpanel">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-green);">
+                            <div class="kpi-number" style="color: var(--sap-green);">{stats.get('up_to_date', 0)}</div>
+                            <div class="kpi-label">✅ Up-to-date</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-orange);">
+                            <div class="kpi-number" style="color: var(--sap-orange);">{stats.get('updates_available', 0)}</div>
+                            <div class="kpi-label">⚠️ Updates Available</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-text-gray);">
+                            <div class="kpi-number" style="color: var(--sap-text-gray);">{stats.get('manual_check', 0)}</div>
+                            <div class="kpi-label">🔍 Manual Check</div>
+                        </div>
+                    </div>
+                </div>"""
+        
+        if not discover_available:
+            html += """
+                <div class="alert-box alert-info">
+                    <strong>Note:</strong> Discover tenant version data is not available. Enable DOWNLOAD_DISCOVER_VERSIONS in configuration to see version comparisons.
+                </div>"""
+        
+        html += """
+                <div class="content-card">
+                    <h3>🔄 Package Version Comparison (Design vs Discover)</h3>
+                    <table class="table table-sm table-hover dataTable" id="versionCompTable">
+                        <thead>
+                            <tr>
+                                <th>Package Name</th>
+                                <th class="text-center">Current Version</th>
+                                <th class="text-center">Latest Version</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>"""
+        
+        for comp in comparisons:
+            status = comp.get('status', 'Unknown')
+            status_class = 'status-uptodate' if status == 'Up-to-date' else ('status-updateavailable' if status == 'Update available' else 'status-manualcheck')
+            
+            html += f"""
+                            <tr>
+                                <td>{comp.get('package_name', 'Unknown')}</td>
+                                <td class="text-center">{comp.get('design_version', 'N/A')}</td>
+                                <td class="text-center">{comp.get('discover_version', 'N/A')}</td>
+                                <td class="text-center"><span class="status-badge {status_class}">{status}</span></td>
+                            </tr>"""
+        
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+            </div>"""
+        
+        return html
+    
+    def _generate_tab_deployment_status(self, data: Dict[str, Any]) -> str:
+        """Generate deployment status tab"""
+        versions = data.get('versions', {})
+        deployments = versions.get('artifact_deployments', [])
+        stats = versions.get('deployment_stats', {})
+        
+        html = f"""            <div class="tab-pane fade" id="deployment" role="tabpanel">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-green);">
+                            <div class="kpi-number" style="color: var(--sap-green);">{stats.get('synced', 0)}</div>
+                            <div class="kpi-label">Synced</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-orange);">
+                            <div class="kpi-number" style="color: var(--sap-orange);">{stats.get('out_of_sync', 0)}</div>
+                            <div class="kpi-label">Out of Sync</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-text-gray);">
+                            <div class="kpi-number" style="color: var(--sap-text-gray);">{stats.get('not_deployed', 0)}</div>
+                            <div class="kpi-label">Not Deployed</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <div class="chart-container">
+                            <h4>Deployment Status</h4>
+                            <div class="chart-wrapper">
+                                <canvas id="deploymentChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="content-card">
+                    <h3>📊 Deployment Status Details</h3>
+                    <table class="table table-sm table-hover dataTable" id="deploymentsTable">
+                        <thead>
+                            <tr>
+                                <th>Artifact</th>
+                                <th>Package</th>
+                                <th class="text-center">Design Version</th>
+                                <th class="text-center">Runtime Version</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>"""
+        
+        for dep in deployments:
+            status = dep.get('deployment_status', 'Unknown')
+            status_class = 'status-synced' if status == 'Synced' else ('status-outofSync' if status == 'Out of Sync' else 'status-notDeployed')
+            
+            html += f"""
+                            <tr>
+                                <td>{dep.get('artifact_name', 'Unknown')}</td>
+                                <td>{dep.get('package_name', 'Unknown')}</td>
+                                <td class="text-center">{dep.get('design_version', 'N/A')}</td>
+                                <td class="text-center">{dep.get('runtime_version') or 'N/A'}</td>
+                                <td class="text-center"><span class="status-badge {status_class}">{status}</span></td>
+                            </tr>"""
+        
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+            </div>"""
+        
+        return html
+    
+    def _generate_tab_systems_adapters(self, data: Dict[str, Any]) -> str:
+        """Generate systems and adapters tab"""
+        systems_data = data.get('systems', {})
+        systems = systems_data.get('systems', [])
+        adapters = systems_data.get('adapters', [])
+        stats = systems_data.get('stats', {})
+        
+        html = f"""            <div class="tab-pane fade" id="systems" role="tabpanel">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{stats.get('unique_systems', 0)}</div>
+                            <div class="kpi-label">Unique Systems</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{stats.get('total_adapters', 0)}</div>
+                            <div class="kpi-label">Total Adapter Instances</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{stats.get('adapter_types', 0)}</div>
+                            <div class="kpi-label">Adapter Types</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <div class="chart-container">
+                            <h4>Top Adapter Types</h4>
+                            <div class="chart-wrapper">
+                                <canvas id="adapterChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="content-card">
+                    <h3>🌐 Connected Systems</h3>
+                    <table class="table table-sm table-hover dataTable" id="systemsTable">
+                        <thead>
+                            <tr>
+                                <th>System</th>
+                                <th>Adapter Type</th>
+                                <th>Direction</th>
+                                <th class="text-center">Usage Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>"""
+        
+        for sys in systems[:50]:  # Limit to top 50 for performance
+            html += f"""
+                            <tr>
+                                <td>{sys.get('system_name', 'Unknown')}</td>
+                                <td>{sys.get('adapter_type', 'Unknown')}</td>
+                                <td>{sys.get('direction', 'Unknown')}</td>
+                                <td class="text-center">{sys.get('usage_count', 0)}</td>
+                            </tr>"""
+        
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="content-card mt-4">
+                    <h3>🔌 Adapter Types Summary</h3>
+                    <table class="table table-sm table-hover dataTable" id="adaptersTable">
+                        <thead>
+                            <tr>
+                                <th>Adapter Type</th>
+                                <th class="text-center">Sender</th>
+                                <th class="text-center">Receiver</th>
+                                <th class="text-center">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>"""
+        
+        for adapter in adapters:
+            html += f"""
+                            <tr>
+                                <td>{adapter.get('adapter_type', 'Unknown')}</td>
+                                <td class="text-center">{adapter.get('sender_count', 0)}</td>
+                                <td class="text-center">{adapter.get('receiver_count', 0)}</td>
+                                <td class="text-center"><strong>{adapter.get('total_count', 0)}</strong></td>
+                            </tr>"""
+        
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+            </div>"""
+        
+        return html
+    
+    def _generate_footer(self, data: Dict[str, Any]) -> str:
+        """Generate report footer"""
+        metadata = data.get('metadata', {})
+        generated_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        return f"""        <div class="report-footer">
+            <p>SAP Cloud Integration Analyzer Tool</p>
+            <p>Generated on {generated_time}</p>
+        </div>"""
+    
+    def _generate_javascript(self, data: Dict[str, Any]) -> str:
+        """Generate JavaScript for charts and tables"""
+        dashboard = data.get('dashboard', {})
+        package_dist = dashboard.get('package_distribution', [])
+        
+        versions = data.get('versions', {})
+        deploy_stats = versions.get('deployment_stats', {})
+        
+        systems_data = data.get('systems', {})
+        adapters = systems_data.get('adapters', [])
+        
+        # Prepare chart data
+        pkg_labels = [p['type'] for p in package_dist]
+        pkg_values = [p['count'] for p in package_dist]
+        pkg_colors = [p['color'] for p in package_dist]
+        
+        deploy_values = [deploy_stats.get('synced', 0), deploy_stats.get('out_of_sync', 0), deploy_stats.get('not_deployed', 0)]
+        
+        adapter_labels = [a['adapter_type'] for a in adapters[:8]]  # Top 8
+        adapter_values = [a['total_count'] for a in adapters[:8]]
+        
+        return f"""    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
-    <!-- jQuery (required for DataTables) -->
+    <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     
     <!-- DataTables JS -->
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
     
     <script>
-        // Report Data
-        var reportData = {json.dumps(report_data)};
-        
-        // Initialize DataTables when document is ready
+        // Initialize DataTables
         $(document).ready(function() {{
-            // Initialize all data tables with common settings
-            $('.data-table').DataTable({{
+            $('.dataTable').DataTable({{
                 pageLength: 25,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-                dom: '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rtip',
-                responsive: true,
-                order: [[0, 'asc']]
+                lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+                order: [[0, 'asc']],
+                responsive: true
             }});
             
             // Initialize charts
@@ -350,365 +814,16 @@ class NeoToCFFormatter:
         }});
         
         function initCharts() {{
-            {self._generate_chart_js(dashboard, versions, systems)}
-        }}
-    </script>
-</body>
-</html>"""
-    
-    def _generate_dashboard_tab(self, dashboard: Dict[str, Any]) -> str:
-        """Generate executive summary dashboard tab"""
-        kpis = dashboard.get('kpis', {})
-        alerts = dashboard.get('alerts', [])
-        top_packages = dashboard.get('top_packages', [])
-        
-        # KPI Cards
-        kpi_html = f"""
-        <div class="row g-3 mb-4">
-            <div class="col-md-3">
-                <div class="kpi-card">
-                    <div class="kpi-number">{kpis.get('total_packages', 0)}</div>
-                    <div class="kpi-label">Total Packages</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="kpi-card">
-                    <div class="kpi-number">{kpis.get('total_artifacts', 0)}</div>
-                    <div class="kpi-label">Total Artifacts</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="kpi-card">
-                    <div class="kpi-number">{kpis.get('unique_systems', 0)}</div>
-                    <div class="kpi-label">Connected Systems</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="kpi-card" style="border-left-color: var(--sap-green);">
-                    <div class="kpi-number" style="color: var(--sap-green);">{kpis.get('readiness_score', 0)}%</div>
-                    <div class="kpi-label">Migration Readiness</div>
-                </div>
-            </div>
-        </div>
-        """
-        
-        # Alerts Section
-        alerts_html = ""
-        if alerts:
-            alerts_html = '<div class="content-card"><h3>🚨 Critical Alerts</h3>'
-            for alert in alerts:
-                alert_type = alert.get('type', 'info')
-                alert_class = 'alert-warning' if alert_type == 'warning' else 'alert-info'
-                alerts_html += f'<div class="alert-sap {alert_class}">{self._escape_html(alert.get("message", ""))}</div>'
-            alerts_html += '</div>'
-        
-        # Charts and Top Packages
-        content_html = f"""
-        <div class="row">
-            <div class="col-md-6">
-                <div class="chart-container">
-                    <h4 style="color: var(--sap-dark-blue); margin-bottom: 20px;">Package Distribution</h4>
-                    <canvas id="packageDistChart"></canvas>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="content-card">
-                    <h3>📊 Top 5 Packages by Complexity</h3>
-                    <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Package</th>
-                                    <th>IFlows</th>
-                                    <th>Scripts</th>
-                                    <th>Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {''.join([f'''
-                                <tr>
-                                    <td>{self._escape_html(pkg.get("package_name", ""))}</td>
-                                    <td>{pkg.get("iflow_count", 0)}</td>
-                                    <td>{pkg.get("script_count", 0)}</td>
-                                    <td><strong>{pkg.get("total_artifacts", 0)}</strong></td>
-                                </tr>
-                                ''' for pkg in top_packages])}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-        """
-        
-        return kpi_html + alerts_html + content_html
-    
-    def _generate_packages_tab(self, packages: Dict[str, Any]) -> str:
-        """Generate package analysis tab"""
-        package_list = packages.get('packages', [])
-        stats = packages.get('stats', {})
-        
-        stats_html = f"""
-        <div class="row g-3 mb-4">
-            <div class="col-md-4">
-                <div class="kpi-card">
-                    <div class="kpi-number">{stats.get('total_packages', 0)}</div>
-                    <div class="kpi-label">Total Packages</div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="kpi-card">
-                    <div class="kpi-number">{stats.get('total_artifacts', 0)}</div>
-                    <div class="kpi-label">Total Artifacts</div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="kpi-card">
-                    <div class="kpi-number">{stats.get('avg_artifacts_per_package', 0)}</div>
-                    <div class="kpi-label">Avg Artifacts/Package</div>
-                </div>
-            </div>
-        </div>
-        """
-        
-        table_rows = []
-        for pkg in package_list:
-            pkg_type = pkg.get('package_type', 'Unknown')
-            type_class = 'primary' if 'Custom' in pkg_type else ('success' if 'Read-Only' in pkg_type else 'secondary')
-            
-            table_rows.append(f'''
-                <tr>
-                    <td>{self._escape_html(pkg.get("package_name", ""))}</td>
-                    <td><span class="badge bg-{type_class}">{self._escape_html(pkg_type)}</span></td>
-                    <td>{pkg.get("iflow_count", 0)}</td>
-                    <td>{pkg.get("script_count", 0)}</td>
-                    <td>{pkg.get("msg_map_count", 0)}</td>
-                    <td>{pkg.get("val_map_count", 0)}</td>
-                    <td><strong>{pkg.get("total_artifacts", 0)}</strong></td>
-                </tr>
-            ''')
-        
-        table_html = f'''
-        <div class="content-card">
-            <h3>📦 Package Details</h3>
-            <table class="table table-striped table-hover data-table" id="packagesTable">
-                <thead>
-                    <tr>
-                        <th>Package Name</th>
-                        <th>Type</th>
-                        <th>IFlows</th>
-                        <th>Scripts</th>
-                        <th>Msg Maps</th>
-                        <th>Val Maps</th>
-                        <th>Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {''.join(table_rows)}
-                </tbody>
-            </table>
-        </div>
-        '''
-        
-        return stats_html + table_html
-    
-    def _generate_versions_tab(self, versions: Dict[str, Any]) -> str:
-        """Generate version and deployment status tab"""
-        deployments = versions.get('artifact_deployments', [])
-        dep_stats = versions.get('deployment_stats', {})
-        
-        stats_html = f"""
-        <div class="row g-3 mb-4">
-            <div class="col-md-4">
-                <div class="kpi-card" style="border-left-color: var(--sap-green);">
-                    <div class="kpi-number" style="color: var(--sap-green);">{dep_stats.get('synced', 0)}</div>
-                    <div class="kpi-label">Synced</div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="kpi-card" style="border-left-color: var(--sap-orange);">
-                    <div class="kpi-number" style="color: var(--sap-orange);">{dep_stats.get('out_of_sync', 0)}</div>
-                    <div class="kpi-label">Out of Sync</div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="kpi-card" style="border-left-color: var(--sap-gray);">
-                    <div class="kpi-number" style="color: var(--sap-gray);">{dep_stats.get('not_deployed', 0)}</div>
-                    <div class="kpi-label">Not Deployed</div>
-                </div>
-            </div>
-        </div>
-        """
-        
-        chart_html = '''
-        <div class="row mb-4">
-            <div class="col-md-6">
-                <div class="chart-container">
-                    <h4 style="color: var(--sap-dark-blue); margin-bottom: 20px;">Deployment Status</h4>
-                    <canvas id="deploymentChart"></canvas>
-                </div>
-            </div>
-        </div>
-        '''
-        
-        table_rows = []
-        for dep in deployments:
-            status = dep.get('deployment_status', 'Unknown')
-            status_class = f'status-{status.replace(" ", "")}'
-            
-            table_rows.append(f'''
-                <tr>
-                    <td>{self._escape_html(dep.get("artifact_name", ""))}</td>
-                    <td>{self._escape_html(dep.get("package_name", ""))}</td>
-                    <td>{self._escape_html(dep.get("design_version", "N/A"))}</td>
-                    <td>{self._escape_html(dep.get("runtime_version", "N/A"))}</td>
-                    <td><span class="badge-custom {status_class}">{self._escape_html(status)}</span></td>
-                </tr>
-            ''')
-        
-        table_html = f'''
-        <div class="content-card">
-            <h3>🔄 Deployment Status Details</h3>
-            <table class="table table-striped table-hover data-table" id="deploymentsTable">
-                <thead>
-                    <tr>
-                        <th>Artifact</th>
-                        <th>Package</th>
-                        <th>Design Version</th>
-                        <th>Runtime Version</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {''.join(table_rows)}
-                </tbody>
-            </table>
-        </div>
-        '''
-        
-        return stats_html + chart_html + table_html
-    
-    def _generate_systems_tab(self, systems: Dict[str, Any]) -> str:
-        """Generate systems and adapters tab"""
-        system_list = systems.get('systems', [])
-        adapter_list = systems.get('adapters', [])
-        stats = systems.get('stats', {})
-        
-        stats_html = f"""
-        <div class="row g-3 mb-4">
-            <div class="col-md-4">
-                <div class="kpi-card">
-                    <div class="kpi-number">{stats.get('unique_systems', 0)}</div>
-                    <div class="kpi-label">Unique Systems</div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="kpi-card">
-                    <div class="kpi-number">{stats.get('total_adapters', 0)}</div>
-                    <div class="kpi-label">Total Adapter Instances</div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="kpi-card">
-                    <div class="kpi-number">{stats.get('adapter_types', 0)}</div>
-                    <div class="kpi-label">Adapter Types</div>
-                </div>
-            </div>
-        </div>
-        """
-        
-        chart_html = '''
-        <div class="row mb-4">
-            <div class="col-md-6">
-                <div class="chart-container">
-                    <h4 style="color: var(--sap-dark-blue); margin-bottom: 20px;">Adapter Distribution</h4>
-                    <canvas id="adapterChart"></canvas>
-                </div>
-            </div>
-        </div>
-        '''
-        
-        # Systems table
-        system_rows = []
-        for sys in system_list[:50]:  # Limit to first 50 for performance
-            system_rows.append(f'''
-                <tr>
-                    <td>{self._escape_html(sys.get("system_name", ""))}</td>
-                    <td>{self._escape_html(sys.get("adapter_type", ""))}</td>
-                    <td>{self._escape_html(sys.get("direction", ""))}</td>
-                    <td>{sys.get("usage_count", 0)}</td>
-                </tr>
-            ''')
-        
-        systems_table = f'''
-        <div class="content-card">
-            <h3>🌐 Connected Systems</h3>
-            <table class="table table-striped table-hover data-table" id="systemsTable">
-                <thead>
-                    <tr>
-                        <th>System</th>
-                        <th>Adapter Type</th>
-                        <th>Direction</th>
-                        <th>Usage Count</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {''.join(system_rows)}
-                </tbody>
-            </table>
-        </div>
-        '''
-        
-        # Adapters table
-        adapter_rows = []
-        for adp in adapter_list:
-            adapter_rows.append(f'''
-                <tr>
-                    <td>{self._escape_html(adp.get("adapter_type", ""))}</td>
-                    <td>{adp.get("sender_count", 0)}</td>
-                    <td>{adp.get("receiver_count", 0)}</td>
-                    <td><strong>{adp.get("total_count", 0)}</strong></td>
-                </tr>
-            ''')
-        
-        adapters_table = f'''
-        <div class="content-card mt-4">
-            <h3>🔌 Adapter Types Summary</h3>
-            <table class="table table-striped table-hover data-table" id="adaptersTable">
-                <thead>
-                    <tr>
-                        <th>Adapter Type</th>
-                        <th>Sender</th>
-                        <th>Receiver</th>
-                        <th>Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {''.join(adapter_rows)}
-                </tbody>
-            </table>
-        </div>
-        '''
-        
-        return stats_html + chart_html + systems_table + adapters_table
-    
-    def _generate_chart_js(self, dashboard: Dict[str, Any], versions: Dict[str, Any], systems: Dict[str, Any]) -> str:
-        """Generate Chart.js initialization code"""
-        package_dist = dashboard.get('package_distribution', [])
-        dep_stats = versions.get('deployment_stats', {})
-        adapters = systems.get('adapters', [])
-        
-        return f"""
-            // Package Distribution Donut Chart
+            // Package Distribution Chart
             if (document.getElementById('packageDistChart')) {{
                 new Chart(document.getElementById('packageDistChart'), {{
                     type: 'doughnut',
                     data: {{
-                        labels: {json.dumps([p['type'] for p in package_dist])},
+                        labels: {pkg_labels},
                         datasets: [{{
-                            data: {json.dumps([p['count'] for p in package_dist])},
-                            backgroundColor: {json.dumps([p['color'] for p in package_dist])},
-                            borderWidth: 2,
+                            data: {pkg_values},
+                            backgroundColor: {pkg_colors},
+                            borderWidth: 1,
                             borderColor: '#fff'
                         }}]
                     }},
@@ -717,24 +832,24 @@ class NeoToCFFormatter:
                         maintainAspectRatio: true,
                         plugins: {{
                             legend: {{
-                                position: 'bottom',
-                                labels: {{ padding: 15, font: {{ size: 13 }} }}
+                                position: 'right',
+                                labels: {{ padding: 10, font: {{ size: 11 }} }}
                             }}
                         }}
                     }}
                 }});
             }}
             
-            // Deployment Status Donut Chart
+            // Deployment Status Chart
             if (document.getElementById('deploymentChart')) {{
                 new Chart(document.getElementById('deploymentChart'), {{
                     type: 'doughnut',
                     data: {{
                         labels: ['Synced', 'Out of Sync', 'Not Deployed'],
                         datasets: [{{
-                            data: [{dep_stats.get('synced', 0)}, {dep_stats.get('out_of_sync', 0)}, {dep_stats.get('not_deployed', 0)}],
-                            backgroundColor: ['#0F7D0F', '#E76500', '#5E696E'],
-                            borderWidth: 2,
+                            data: {deploy_values},
+                            backgroundColor: ['#2E844A', '#F0AB00', '#6A6D70'],
+                            borderWidth: 1,
                             borderColor: '#fff'
                         }}]
                     }},
@@ -743,24 +858,24 @@ class NeoToCFFormatter:
                         maintainAspectRatio: true,
                         plugins: {{
                             legend: {{
-                                position: 'bottom',
-                                labels: {{ padding: 15, font: {{ size: 13 }} }}
+                                position: 'right',
+                                labels: {{ padding: 10, font: {{ size: 11 }} }}
                             }}
                         }}
                     }}
                 }});
             }}
             
-            // Adapter Distribution Donut Chart
+            // Adapter Distribution Chart
             if (document.getElementById('adapterChart')) {{
                 new Chart(document.getElementById('adapterChart'), {{
                     type: 'doughnut',
                     data: {{
-                        labels: {json.dumps([a['adapter_type'] for a in adapters[:8]])},
+                        labels: {adapter_labels},
                         datasets: [{{
-                            data: {json.dumps([a['total_count'] for a in adapters[:8]])},
-                            backgroundColor: ['#0070F2', '#0F7D0F', '#E76500', '#5E696E', '#BB0000', '#00A8E1', '#FF9500', '#6A6D70'],
-                            borderWidth: 2,
+                            data: {adapter_values},
+                            backgroundColor: ['#0A6ED1', '#2E844A', '#F0AB00', '#6A6D70', '#E52929', '#00A8E1', '#FF9500', '#8B8B8B'],
+                            borderWidth: 1,
                             borderColor: '#fff'
                         }}]
                     }},
@@ -769,22 +884,12 @@ class NeoToCFFormatter:
                         maintainAspectRatio: true,
                         plugins: {{
                             legend: {{
-                                position: 'bottom',
-                                labels: {{ padding: 15, font: {{ size: 12 }} }}
+                                position: 'right',
+                                labels: {{ padding: 8, font: {{ size: 10 }} }}
                             }}
                         }}
                     }}
                 }});
             }}
-        """
-    
-    def _escape_html(self, text: str) -> str:
-        """Escape HTML special characters"""
-        if text is None:
-            return ''
-        return (str(text)
-                .replace('&', '&amp;')
-                .replace('<', '&lt;')
-                .replace('>', '&gt;')
-                .replace('"', '&quot;')
-                .replace("'", '&#39;'))
+        }}
+    </script>"""
