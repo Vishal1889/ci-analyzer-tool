@@ -60,9 +60,9 @@ class NeoToCFMigrationReport(BaseReport):
         package_query = """
         SELECT 
             COUNT(*) as total_packages,
-            SUM(CASE WHEN (Vendor IS NULL OR Vendor = '') THEN 1 ELSE 0 END) as custom_packages,
-            SUM(CASE WHEN Vendor IS NOT NULL AND Vendor != '' AND Mode = 'READ_ONLY' THEN 1 ELSE 0 END) as standard_readonly,
-            SUM(CASE WHEN Vendor IS NOT NULL AND Vendor != '' AND Mode = 'EDIT_ALLOWED' THEN 1 ELSE 0 END) as standard_editable
+            SUM(CASE WHEN Mode = 'READ_ONLY' THEN 1 ELSE 0 END) as standard_readonly,
+            SUM(CASE WHEN Mode != 'READ_ONLY' AND (PartnerContent = 1 OR LOWER(Vendor) LIKE '%sap%') THEN 1 ELSE 0 END) as standard_editable,
+            SUM(CASE WHEN Mode != 'READ_ONLY' AND (PartnerContent = 0 OR PartnerContent IS NULL) AND (Vendor IS NULL OR LOWER(Vendor) NOT LIKE '%sap%') THEN 1 ELSE 0 END) as custom_packages
         FROM package
         WHERE tenant_id = ?
         """
@@ -139,7 +139,7 @@ class NeoToCFMigrationReport(BaseReport):
                 'message': f'{undeployed_count} IFlow(s) not deployed to runtime'
             })
         
-        # Package distribution for donut chart
+        # Package distribution for bar chart
         package_distribution = [
             {
                 'type': 'Custom Packages',
@@ -147,7 +147,7 @@ class NeoToCFMigrationReport(BaseReport):
                 'color': '#0070F2'
             },
             {
-                'type': 'Standard (Read-Only)',
+                'type': 'Standard (Configure-Only)',
                 'count': pkg_data.get('standard_readonly', 0),
                 'color': '#0F7D0F'
             },
@@ -274,10 +274,9 @@ class NeoToCFMigrationReport(BaseReport):
             p.Version as version,
             p.ShortText as description,
             CASE 
-                WHEN (p.Vendor IS NULL OR p.Vendor = '') THEN 'Custom'
-                WHEN p.Mode = 'READ_ONLY' THEN 'Standard (Read-Only)'
-                WHEN p.Mode = 'EDIT_ALLOWED' THEN 'Standard (Editable)'
-                ELSE 'Unknown'
+                WHEN p.Mode = 'READ_ONLY' THEN 'Standard (Configure-Only)'
+                WHEN p.PartnerContent = 1 OR LOWER(p.Vendor) LIKE '%sap%' THEN 'Standard (Editable)'
+                ELSE 'Custom'
             END as package_type,
             COUNT(DISTINCT i.Id) as iflow_count,
             COUNT(DISTINCT sc.Name) as script_count,

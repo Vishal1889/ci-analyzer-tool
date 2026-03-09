@@ -727,6 +727,13 @@ class NeoToCFFormatter:
         packages = packages_data.get('packages', [])
         stats = packages_data.get('stats', {})
         
+        # Calculate totals for column headers
+        total_iflows = sum(pkg.get('iflow_count', 0) for pkg in packages)
+        total_scripts = sum(pkg.get('script_count', 0) for pkg in packages)
+        total_msg_maps = sum(pkg.get('msg_map_count', 0) for pkg in packages)
+        total_val_maps = sum(pkg.get('val_map_count', 0) for pkg in packages)
+        total_artifacts = stats.get('total_artifacts', 0)
+        
         html = f"""            <div class="tab-pane fade" id="packages" role="tabpanel">
                 <div class="row g-3 mb-4">
                     <div class="col-md-4">
@@ -756,17 +763,17 @@ class NeoToCFFormatter:
                             <tr>
                                 <th>Package Name</th>
                                 <th>Type</th>
-                                <th class="text-center">IFlows</th>
-                                <th class="text-center">Scripts</th>
-                                <th class="text-center">Msg Maps</th>
-                                <th class="text-center">Val Maps</th>
-                                <th class="text-center">Total</th>
+                                <th class="text-center">IFlows ({total_iflows})</th>
+                                <th class="text-center">Scripts ({total_scripts})</th>
+                                <th class="text-center">Msg Maps ({total_msg_maps})</th>
+                                <th class="text-center">Val Maps ({total_val_maps})</th>
+                                <th class="text-center">Total ({total_artifacts})</th>
                             </tr>
                         </thead>
                         <tbody>"""
         
         for pkg in packages:
-            badge_class = 'bg-primary' if pkg['package_type'] == 'Custom' else ('bg-success' if 'Read-Only' in pkg['package_type'] else 'bg-secondary')
+            badge_class = 'bg-primary' if pkg['package_type'] == 'Custom' else ('bg-success' if 'Configure-Only' in pkg['package_type'] else 'bg-secondary')
             html += f"""
                             <tr>
                                 <td>{pkg['package_name']}</td>
