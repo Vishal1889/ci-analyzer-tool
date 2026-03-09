@@ -84,7 +84,11 @@ class DiscoverVersionChecker:
             }
         }
         
-        output_file = self.download_dir / "discover-versions.json"
+        # Save in json-files directory with correct naming
+        json_files_dir = self.download_dir / "json-files"
+        json_files_dir.mkdir(parents=True, exist_ok=True)
+        
+        output_file = json_files_dir / "package-discover-versions.json"
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
@@ -94,7 +98,7 @@ class DiscoverVersionChecker:
         else:
             size_str = f"{file_size} B"
         
-        logger.info(f"Saved discover-versions.json ({size_str})")
+        logger.info(f"Saved package-discover-versions.json ({size_str})")
         logger.info(f"Discover version check completed. Checked {len(results)} packages")
         
         return {
