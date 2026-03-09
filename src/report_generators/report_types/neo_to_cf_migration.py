@@ -372,19 +372,22 @@ class NeoToCFMigrationReport(BaseReport):
         """Generate systems and adapter analysis"""
         
         # Unique systems with adapter details from bpmn_channel table
+        # Excludes ProcessDirect (internal routing) and separates system name from URL
         systems_query = """
         SELECT DISTINCT
-            TRIM(LOWER(COALESCE(address, system))) as system_id,
-            COALESCE(address, system) as system_name,
+            TRIM(LOWER(COALESCE(system, address))) as system_id,
+            COALESCE(system, 'Unknown') as system_name,
+            COALESCE(address, 'N/A') as address_url,
             componentType as adapter_type,
-            type as direction,
-            COUNT(DISTINCT iflowId) as usage_count
+            REPLACE(REPLACE(type, 'Endpoint', ''), 'endpoint', '') as direction,
+            COUNT(DISTINCT iflowId) as iflow_count
         FROM bpmn_channel
         WHERE tenant_id = ?
         AND (address IS NOT NULL OR system IS NOT NULL)
         AND TRIM(COALESCE(address, system, '')) != ''
-        GROUP BY TRIM(LOWER(COALESCE(address, system))), COALESCE(address, system), componentType, type
-        ORDER BY usage_count DESC, system_name
+        AND componentType != 'ProcessDirect'
+        GROUP BY TRIM(LOWER(COALESCE(system, address))), COALESCE(system, 'Unknown'), COALESCE(address, 'N/A'), componentType, direction
+        ORDER BY iflow_count DESC, system_name
         """
         systems = self.execute_query(systems_query, (self.tenant_id,))
         

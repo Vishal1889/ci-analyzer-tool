@@ -984,10 +984,11 @@ class NeoToCFFormatter:
                     <table class="table table-sm table-hover dataTable" id="systemsTable">
                         <thead>
                             <tr>
-                                <th>System</th>
-                                <th>Adapter Type</th>
+                                <th>System Name</th>
+                                <th>Address/URL</th>
+                                <th title="ProcessDirect adapters (used for internal IFlow routing) are excluded from this list">Adapter Type ℹ️</th>
                                 <th>Direction</th>
-                                <th class="text-center">Usage Count</th>
+                                <th class="text-center">Used in # IFlows</th>
                             </tr>
                         </thead>
                         <tbody>"""
@@ -996,9 +997,10 @@ class NeoToCFFormatter:
             html += f"""
                             <tr>
                                 <td>{sys.get('system_name', 'Unknown')}</td>
+                                <td>{sys.get('address_url', 'N/A')}</td>
                                 <td>{sys.get('adapter_type', 'Unknown')}</td>
                                 <td>{sys.get('direction', 'Unknown')}</td>
-                                <td class="text-center">{sys.get('usage_count', 0)}</td>
+                                <td class="text-center">{sys.get('iflow_count', 0)}</td>
                             </tr>"""
         
         html += """

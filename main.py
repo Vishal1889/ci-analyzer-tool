@@ -200,9 +200,10 @@ def main():
                     report = NeoToCFMigrationReport(db_path, config.tenant_id, captured_at)
                     data = report.generate()
                     
-                    # Save HTML only with specialized formatter
+                    # Generate HTML report with tenant and timestamp in filename
                     html_formatter = NeoToCFFormatter(report.get_report_title(), config.tenant_id, captured_at)
-                    html_file = reports_dir / f"{report.get_report_name()}.html"
+                    timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    html_file = reports_dir / f"{report.get_report_name()}_{config.tenant_id}_{timestamp_str}.html"
                     html_formatter.generate_html(data, html_file)
                     
                     reports_generated.append(report.get_report_name())
@@ -1391,9 +1392,10 @@ def main():
                     report = NeoToCFMigrationReport(db_path, config.tenant_id, timestamp_iso)
                     data = report.generate()
                     
-                    # Save HTML only with specialized formatter
+                    # Generate HTML report with tenant and timestamp in filename
                     html_formatter = NeoToCFFormatter(report.get_report_title(), config.tenant_id, timestamp_iso)
-                    html_file = reports_dir / f"{report.get_report_name()}.html"
+                    timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    html_file = reports_dir / f"{report.get_report_name()}_{config.tenant_id}_{timestamp_str}.html"
                     html_formatter.generate_html(data, html_file)
                     
                     reports_generated.append(report.get_report_name())
