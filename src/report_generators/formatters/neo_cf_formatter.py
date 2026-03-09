@@ -115,33 +115,35 @@ class NeoToCFFormatter:
         
         /* Header */
         .report-header {{
-            background-color: var(--sap-blue);
+            background-color: #2084cf;
             color: white;
             padding: 24px 32px;
-            border-radius: 4px;
+            border-radius: 8px;
             margin-bottom: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(32, 132, 207, 0.2);
         }}
         
         .report-header h1 {{
-            margin: 0 0 8px 0;
-            font-size: 24px;
-            font-weight: 400;
+            margin: 0;
+            font-size: 26px;
+            font-weight: 500;
         }}
         
         .report-meta {{
             font-size: 13px;
             opacity: 0.95;
+            margin-top: 8px;
         }}
         
         /* KPI Cards */
         .kpi-card {{
             background: white;
-            border-radius: 4px;
+            border-radius: 8px;
             padding: 16px;
             margin-bottom: 16px;
             border: 1px solid var(--sap-border);
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            height: 100%;
         }}
         
         .kpi-number {{
@@ -172,7 +174,8 @@ class NeoToCFFormatter:
             padding: 12px 20px;
             font-weight: 500;
             font-size: 14px;
-            border-radius: 4px 4px 0 0;
+            border-radius: 12px 12px 0 0;
+            transition: all 0.3s ease;
         }}
         
         .nav-tabs .nav-link:hover {{
@@ -546,8 +549,7 @@ class NeoToCFFormatter:
             <h1>📊 {self.report_title}</h1>
             <div class="report-meta">
                 <strong>Tenant:</strong> {self.tenant_id} &nbsp;|&nbsp;
-                <strong>Extraction Date:</strong> {captured_date} &nbsp;|&nbsp;
-                <strong>Report Version:</strong> {metadata.get('report_version', '1.0')}
+                <strong>Extraction Date:</strong> {captured_date}
             </div>
         </div>"""
     
