@@ -359,7 +359,10 @@ class NeoToCFMigrationReport(BaseReport):
             sc.Name as artifact_name,
             'Script Collection' as artifact_type,
             p.Name as package_name,
-            sc.Version as design_version,
+            CASE 
+                WHEN sc.Version = 'Active' THEN 'Draft'
+                ELSE sc.Version
+            END as design_version,
             r.Version as runtime_version,
             CASE 
                 WHEN r.Id IS NULL THEN 'Not Deployed'
@@ -379,7 +382,10 @@ class NeoToCFMigrationReport(BaseReport):
             mm.Name as artifact_name,
             'Message Mapping' as artifact_type,
             p.Name as package_name,
-            mm.Version as design_version,
+            CASE 
+                WHEN mm.Version = 'Active' THEN 'Draft'
+                ELSE mm.Version
+            END as design_version,
             r.Version as runtime_version,
             CASE 
                 WHEN r.Id IS NULL THEN 'Not Deployed'
@@ -399,7 +405,10 @@ class NeoToCFMigrationReport(BaseReport):
             vm.Name as artifact_name,
             'Value Mapping' as artifact_type,
             p.Name as package_name,
-            vm.Version as design_version,
+            CASE 
+                WHEN vm.Version = 'Active' THEN 'Draft'
+                ELSE vm.Version
+            END as design_version,
             r.Version as runtime_version,
             CASE 
                 WHEN r.Id IS NULL THEN 'Not Deployed'
