@@ -533,15 +533,27 @@ class NeoToCFMigrationReport(BaseReport):
         """
         variables = self.execute_query(variables_query, (self.tenant_id,))
         
-        # Get statistics
+        # Get statistics - count unique variables (not files)
+        unique_vars_query = """
+        SELECT COUNT(DISTINCT envVariableList) as unique_vars
+        FROM (
+            SELECT TRIM(value) as envVariableList
+            FROM environment_variable_check,
+            json_each('["' || REPLACE(envVariableList, '|', '","') || '"]')
+            WHERE tenant_id = ?
+        )
+        """
+        unique_vars_count = self.execute_scalar(unique_vars_query, (self.tenant_id,)) or 0
+        
+        # Total files using variables
         total_files = self.execute_scalar(
-            "SELECT COUNT(DISTINCT fileName) FROM environment_variable_check WHERE tenant_id = ?",
+            "SELECT COUNT(*) FROM environment_variable_check WHERE tenant_id = ?",
             (self.tenant_id,)
         ) or 0
         
         # Breakdown by file type
         file_type_query = """
-        SELECT fileType, COUNT(DISTINCT fileName) as count
+        SELECT fileType, COUNT(*) as count
         FROM environment_variable_check
         WHERE tenant_id = ?
         GROUP BY fileType
@@ -551,7 +563,7 @@ class NeoToCFMigrationReport(BaseReport):
         
         # Breakdown by parent type
         parent_type_query = """
-        SELECT parentType, COUNT(DISTINCT fileName) as count
+        SELECT parentType, COUNT(*) as count
         FROM environment_variable_check
         WHERE tenant_id = ?
         GROUP BY parentType
@@ -559,7 +571,7 @@ class NeoToCFMigrationReport(BaseReport):
         parent_types = self.execute_query(parent_type_query, (self.tenant_id,))
         by_parent_type = {pt['parentType']: pt['count'] for pt in parent_types}
         
-        logger.info(f"  Found {len(variables)} unique environment variables in {total_files} files")
+        logger.info(f"  Found {unique_vars_count} unique environment variables in {total_files} files")
         
         return {
             'variables': variables,

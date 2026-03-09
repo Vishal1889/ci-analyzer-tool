@@ -1075,11 +1075,19 @@ class NeoToCFFormatter:
         by_file_type = stats.get('by_file_type', {})
         by_parent_type = stats.get('by_parent_type', {})
         
+        # Calculate unique variables count from the data
+        unique_vars = set()
+        for var in variables:
+            var_list = var.get('variables', '').split('|')
+            unique_vars.update([v.strip() for v in var_list if v.strip()])
+        
+        unique_vars_count = len(unique_vars)
+        
         html = f"""            <div class="tab-pane fade" id="envvars" role="tabpanel">
                 <div class="row g-3 mb-4">
                     <div class="col-md-3">
                         <div class="kpi-card">
-                            <div class="kpi-number">{stats.get('total_variables', 0)}</div>
+                            <div class="kpi-number">{unique_vars_count}</div>
                             <div class="kpi-label">Unique HC_ Variables</div>
                         </div>
                     </div>
@@ -1112,7 +1120,8 @@ class NeoToCFFormatter:
                                 <th>Type</th>
                                 <th class="text-center"># Variables</th>
                                 <th>Variable Names</th>
-                                <th>Parent IFlow/Script Collection</th>
+                                <th>Parent Name</th>
+                                <th>Parent Type</th>
                                 <th>Package</th>
                             </tr>
                         </thead>
@@ -1128,7 +1137,8 @@ class NeoToCFFormatter:
                                 <td>{var.get('file_type', 'Unknown')}</td>
                                 <td class="text-center"><strong>{var.get('var_count', 0)}</strong></td>
                                 <td><code>{var_list}</code></td>
-                                <td>{var.get('parent_name', 'Unknown')} <span class="badge bg-secondary">{var.get('parent_type', '')}</span></td>
+                                <td>{var.get('parent_name', 'Unknown')}</td>
+                                <td><span class="badge bg-secondary">{var.get('parent_type', '')}</span></td>
                                 <td>{var.get('package_name', 'Unknown')}</td>
                             </tr>"""
         
