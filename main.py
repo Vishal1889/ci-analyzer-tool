@@ -187,8 +187,8 @@ def main():
                 # Extract tenant info from database path
                 db_path = Path(config.report_db_path)
                 
-                # Create reports directory next to database
-                reports_dir = db_path.parent / "reports"
+                # Create reports directory in current run directory (not next to old database)
+                reports_dir = config.get_run_dir(run_timestamp) / "reports"
                 reports_dir.mkdir(exist_ok=True)
                 
                 # Generate each report
