@@ -38,6 +38,7 @@ class DynamicDatabaseManager:
         'access-policies.json': 'security_access_policy',
         'partner-directory-binary.json': 'partner_directory_binary_parameter',
         'environment-variable-check.json': 'environment_variable_check',
+        'package-discover-versions.json': 'package_discover_version',
         # BPMN tables
         'bpmn-participants.json': 'bpmn_participant',
         'bpmn-channels.json': 'bpmn_channel',
