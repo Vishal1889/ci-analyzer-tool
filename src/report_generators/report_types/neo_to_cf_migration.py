@@ -30,6 +30,9 @@ class NeoToCFMigrationReport(BaseReport):
         version_comparison = self._generate_version_comparison()
         versions = self._generate_version_deployment()
         systems = self._generate_systems_adapters()
+        env_vars = self._generate_environment_variables()
+        cert_mappings = self._generate_certificate_mappings()
+        keystore = self._generate_keystore_view()
         
         self.report_data = {
             'metadata': metadata,
@@ -37,7 +40,10 @@ class NeoToCFMigrationReport(BaseReport):
             'packages': packages,
             'version_comparison': version_comparison,
             'versions': versions,
-            'systems': systems
+            'systems': systems,
+            'environment_variables': env_vars,
+            'certificate_mappings': cert_mappings,
+            'keystore': keystore
         }
         
         logger.info(f"  Generated migration assessment with {len(self.report_data)} sections")
@@ -488,6 +494,301 @@ class NeoToCFMigrationReport(BaseReport):
             'adapters': adapters,
             'stats': stats
         }
+    
+    def _generate_environment_variables(self) -> Dict[str, Any]:
+        """Generate environment variables analysis"""
+        
+        # Check if table exists
+        try:
+            self.execute_scalar(
+                "SELECT COUNT(*) FROM environment_variable_check WHERE tenant_id = ?",
+                (self.tenant_id,)
+            )
+        except:
+            logger.info("  Environment variables table not available")
+            return {
+                'variables': [],
+                'stats': {
+                    'total_variables': 0,
+                    'total_files': 0,
+                    'by_file_type': {},
+                    'by_parent_type': {}
+                },
+                'available': False
+            }
+        
+        # Get aggregated variable usage
+        variables_query = """
+        SELECT 
+            envVariableList as variable_name,
+            COUNT(DISTINCT fileName) as file_count,
+            GROUP_CONCAT(DISTINCT fileType) as file_types,
+            GROUP_CONCAT(DISTINCT parentType) as parent_types,
+            GROUP_CONCAT(DISTINCT packageId || '|' || fileName || '|' || parentName, '; ') as usage_details
+        FROM environment_variable_check
+        WHERE tenant_id = ?
+        GROUP BY envVariableList
+        ORDER BY file_count DESC, variable_name
+        """
+        variables = self.execute_query(variables_query, (self.tenant_id,))
+        
+        # Get statistics
+        total_files = self.execute_scalar(
+            "SELECT COUNT(DISTINCT fileName) FROM environment_variable_check WHERE tenant_id = ?",
+            (self.tenant_id,)
+        ) or 0
+        
+        # Breakdown by file type
+        file_type_query = """
+        SELECT fileType, COUNT(DISTINCT fileName) as count
+        FROM environment_variable_check
+        WHERE tenant_id = ?
+        GROUP BY fileType
+        """
+        file_types = self.execute_query(file_type_query, (self.tenant_id,))
+        by_file_type = {ft['fileType']: ft['count'] for ft in file_types}
+        
+        # Breakdown by parent type
+        parent_type_query = """
+        SELECT parentType, COUNT(DISTINCT fileName) as count
+        FROM environment_variable_check
+        WHERE tenant_id = ?
+        GROUP BY parentType
+        """
+        parent_types = self.execute_query(parent_type_query, (self.tenant_id,))
+        by_parent_type = {pt['parentType']: pt['count'] for pt in parent_types}
+        
+        logger.info(f"  Found {len(variables)} unique environment variables in {total_files} files")
+        
+        return {
+            'variables': variables,
+            'stats': {
+                'total_variables': len(variables),
+                'total_files': total_files,
+                'by_file_type': by_file_type,
+                'by_parent_type': by_parent_type
+            },
+            'available': True
+        }
+    
+    def _generate_certificate_mappings(self) -> Dict[str, Any]:
+        """Generate certificate-to-user mappings (NEO only)"""
+        
+        # Check if table exists (NEO only)
+        try:
+            self.execute_scalar(
+                "SELECT COUNT(*) FROM security_certificate_user_mapping WHERE tenant_id = ?",
+                (self.tenant_id,)
+            )
+        except:
+            logger.info("  Certificate-to-user mappings not available (CF tenant or table missing)")
+            return {
+                'mappings': [],
+                'stats': {
+                    'total_mappings': 0,
+                    'active': 0,
+                    'expired': 0,
+                    'expiring_soon': 0,
+                    'unique_users': 0
+                },
+                'available': False
+            }
+        
+        # Get certificate mappings with expiry status
+        from datetime import datetime, timedelta
+        
+        mappings_query = """
+        SELECT 
+            IssuedBy,
+            IssuedTo,
+            User,
+            SerialNumber,
+            ValidFrom,
+            ValidTo,
+            MappingId
+        FROM security_certificate_user_mapping
+        WHERE tenant_id = ?
+        ORDER BY ValidTo DESC
+        """
+        mappings = self.execute_query(mappings_query, (self.tenant_id,))
+        
+        # Calculate expiry status for each mapping
+        now = datetime.now()
+        expiry_threshold = now + timedelta(days=90)
+        
+        active_count = 0
+        expired_count = 0
+        expiring_soon_count = 0
+        unique_users = set()
+        
+        for mapping in mappings:
+            unique_users.add(mapping['User'])
+            
+            # Parse ValidTo date (format: 2024-12-18T09:54:08+00:00)
+            try:
+                valid_to_str = mapping['ValidTo']
+                # Remove timezone for simple parsing
+                if '+' in valid_to_str:
+                    valid_to_str = valid_to_str.split('+')[0]
+                elif 'Z' in valid_to_str:
+                    valid_to_str = valid_to_str.replace('Z', '')
+                
+                valid_to = datetime.fromisoformat(valid_to_str)
+                
+                if valid_to < now:
+                    mapping['status'] = 'Expired'
+                    expired_count += 1
+                elif valid_to < expiry_threshold:
+                    mapping['status'] = 'Expiring Soon'
+                    expiring_soon_count += 1
+                else:
+                    mapping['status'] = 'Active'
+                    active_count += 1
+                    
+                # Add days until expiry
+                days_until_expiry = (valid_to - now).days
+                mapping['days_until_expiry'] = days_until_expiry
+                
+            except Exception as e:
+                logger.warning(f"Could not parse date {mapping.get('ValidTo')}: {e}")
+                mapping['status'] = 'Unknown'
+                mapping['days_until_expiry'] = None
+        
+        logger.info(f"  Found {len(mappings)} certificate-to-user mappings ({active_count} active, {expired_count} expired)")
+        
+        return {
+            'mappings': mappings,
+            'stats': {
+                'total_mappings': len(mappings),
+                'active': active_count,
+                'expired': expired_count,
+                'expiring_soon': expiring_soon_count,
+                'unique_users': len(unique_users)
+            },
+            'available': True
+        }
+    
+    def _generate_keystore_view(self) -> Dict[str, Any]:
+        """Generate keystore/certificate view"""
+        
+        # Get keystore entries
+        keystore_query = """
+        SELECT 
+            Alias,
+            Type,
+            SubjectDN,
+            IssuerDN,
+            ValidNotBefore,
+            ValidNotAfter,
+            KeyType,
+            KeySize,
+            SignatureAlgorithm,
+            Status as entry_status,
+            Owner,
+            SerialNumber
+        FROM security_keystore_entry
+        WHERE tenant_id = ?
+        ORDER BY ValidNotAfter DESC
+        """
+        entries = self.execute_query(keystore_query, (self.tenant_id,))
+        
+        # Calculate expiry status for each entry
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        expiry_threshold = now + timedelta(days=90)
+        
+        active_count = 0
+        expired_count = 0
+        expiring_soon_count = 0
+        type_breakdown = {}
+        key_type_breakdown = {}
+        
+        for entry in entries:
+            # Track types
+            entry_type = entry.get('Type', 'Unknown')
+            type_breakdown[entry_type] = type_breakdown.get(entry_type, 0) + 1
+            
+            key_type = entry.get('KeyType', 'Unknown')
+            key_type_breakdown[key_type] = key_type_breakdown.get(key_type, 0) + 1
+            
+            # Parse ValidNotAfter date (format: /Date(timestamp)/)
+            try:
+                valid_after_str = entry['ValidNotAfter']
+                if valid_after_str and '/Date(' in valid_after_str:
+                    # Extract timestamp from /Date(timestamp)/
+                    timestamp_ms = int(valid_after_str.split('(')[1].split(')')[0])
+                    valid_after = datetime.fromtimestamp(timestamp_ms / 1000)
+                    
+                    if valid_after < now:
+                        entry['status'] = 'Expired'
+                        expired_count += 1
+                    elif valid_after < expiry_threshold:
+                        entry['status'] = 'Expiring Soon'
+                        expiring_soon_count += 1
+                    else:
+                        entry['status'] = 'Active'
+                        active_count += 1
+                    
+                    # Add days until expiry
+                    days_until_expiry = (valid_after - now).days
+                    entry['days_until_expiry'] = days_until_expiry
+                    
+                    # Format dates for display
+                    entry['valid_from_formatted'] = self._parse_odata_date(entry.get('ValidNotBefore', ''))
+                    entry['valid_until_formatted'] = valid_after.strftime('%Y-%m-%d')
+                else:
+                    entry['status'] = 'Unknown'
+                    entry['days_until_expiry'] = None
+                    
+            except Exception as e:
+                logger.warning(f"Could not parse date {entry.get('ValidNotAfter')}: {e}")
+                entry['status'] = 'Unknown'
+                entry['days_until_expiry'] = None
+            
+            # Extract CN from Subject and Issuer
+            entry['subject_cn'] = self._extract_cn(entry.get('SubjectDN', ''))
+            entry['issuer_cn'] = self._extract_cn(entry.get('IssuerDN', ''))
+        
+        logger.info(f"  Found {len(entries)} keystore entries ({active_count} active, {expired_count} expired)")
+        
+        return {
+            'entries': entries,
+            'stats': {
+                'total_entries': len(entries),
+                'active': active_count,
+                'expired': expired_count,
+                'expiring_soon': expiring_soon_count,
+                'by_type': type_breakdown,
+                'by_key_type': key_type_breakdown
+            }
+        }
+    
+    def _parse_odata_date(self, date_str: str) -> str:
+        """Parse SAP OData date format /Date(timestamp)/"""
+        if not date_str or '/Date(' not in date_str:
+            return 'N/A'
+        
+        try:
+            from datetime import datetime
+            timestamp_ms = int(date_str.split('(')[1].split(')')[0])
+            dt = datetime.fromtimestamp(timestamp_ms / 1000)
+            return dt.strftime('%Y-%m-%d')
+        except:
+            return 'N/A'
+    
+    def _extract_cn(self, dn: str) -> str:
+        """Extract CN (Common Name) from Distinguished Name"""
+        if not dn:
+            return 'Unknown'
+        
+        # Look for CN= in the DN string
+        parts = dn.split(',')
+        for part in parts:
+            part = part.strip()
+            if part.startswith('CN='):
+                return part[3:]  # Remove 'CN=' prefix
+        
+        return dn  # Return full DN if CN not found
     
     def _calculate_readiness_score(self, pkg_data: Dict, iflow_count: int, 
                                    total_artifacts: int, systems_count: int) -> int:
