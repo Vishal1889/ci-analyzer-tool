@@ -329,7 +329,7 @@ class NeoToCFMigrationReport(BaseReport):
         """
         package_versions = self.execute_query(package_versions_query, (self.tenant_id,))
         
-        # All artifacts deployment status (IFlows, Value Mappings, etc.)
+        # All artifacts deployment status (IFlows, Script Collections, Message Mappings, Value Mappings)
         all_artifacts_query = """
         SELECT 
             i.Id as artifact_id,
@@ -355,6 +355,46 @@ class NeoToCFMigrationReport(BaseReport):
         UNION ALL
         
         SELECT 
+            sc.Name as artifact_id,
+            sc.Name as artifact_name,
+            'Script Collection' as artifact_type,
+            p.Name as package_name,
+            sc.Version as design_version,
+            r.Version as runtime_version,
+            CASE 
+                WHEN r.Id IS NULL THEN 'Not Deployed'
+                WHEN sc.Version = r.Version THEN 'In Sync'
+                ELSE 'Out of Sync'
+            END as deployment_status,
+            sc.ModifiedAt as last_modified
+        FROM script_collection sc
+        INNER JOIN package p ON sc.PackageId = p.Id AND sc.tenant_id = p.tenant_id
+        LEFT JOIN runtime r ON sc.Name = r.Id AND sc.tenant_id = r.tenant_id
+        WHERE sc.tenant_id = ?
+        
+        UNION ALL
+        
+        SELECT 
+            mm.Id as artifact_id,
+            mm.Name as artifact_name,
+            'Message Mapping' as artifact_type,
+            p.Name as package_name,
+            mm.Version as design_version,
+            r.Version as runtime_version,
+            CASE 
+                WHEN r.Id IS NULL THEN 'Not Deployed'
+                WHEN mm.Version = r.Version THEN 'In Sync'
+                ELSE 'Out of Sync'
+            END as deployment_status,
+            mm.ModifiedAt as last_modified
+        FROM message_mapping mm
+        INNER JOIN package p ON mm.PackageId = p.Id AND mm.tenant_id = p.tenant_id
+        LEFT JOIN runtime r ON mm.Id = r.Id AND mm.tenant_id = r.tenant_id
+        WHERE mm.tenant_id = ?
+        
+        UNION ALL
+        
+        SELECT 
             vm.Id as artifact_id,
             vm.Name as artifact_name,
             'Value Mapping' as artifact_type,
@@ -374,7 +414,7 @@ class NeoToCFMigrationReport(BaseReport):
         
         ORDER BY deployment_status DESC, package_name, artifact_name
         """
-        iflow_deployments = self.execute_query(all_artifacts_query, (self.tenant_id, self.tenant_id))
+        iflow_deployments = self.execute_query(all_artifacts_query, (self.tenant_id, self.tenant_id, self.tenant_id, self.tenant_id))
         
         # Calculate deployment statistics
         deployment_stats = {
