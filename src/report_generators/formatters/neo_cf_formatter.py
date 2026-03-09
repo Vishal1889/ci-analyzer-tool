@@ -47,6 +47,9 @@ class NeoToCFFormatter:
     <!-- DataTables CSS -->
     <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     
+    <!-- DataTables Buttons CSS -->
+    <link href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css" rel="stylesheet">
+    
     <style>
 {self._generate_css()}
     </style>
@@ -317,6 +320,51 @@ class NeoToCFFormatter:
         .status-synced {{ background-color: #E6F4EA; color: var(--sap-green); }}
         .status-outofSync {{ background-color: #FFF4E5; color: var(--sap-orange); }}
         .status-notDeployed {{ background-color: #F5F5F5; color: var(--sap-text-gray); }}
+        
+        /* DataTables Buttons */
+        .dt-buttons {{
+            margin-bottom: 12px;
+        }}
+        
+        .dt-button {{
+            background-color: white !important;
+            border: 1px solid var(--sap-border) !important;
+            border-radius: 4px !important;
+            padding: 6px 14px !important;
+            margin-right: 8px !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            color: var(--sap-text-dark) !important;
+            transition: all 0.2s ease !important;
+        }}
+        
+        .dt-button:hover {{
+            background-color: var(--sap-light-blue) !important;
+            border-color: var(--sap-blue) !important;
+            color: var(--sap-blue) !important;
+        }}
+        
+        .dt-button.buttons-excel {{
+            background-color: var(--sap-green) !important;
+            border-color: var(--sap-green) !important;
+            color: white !important;
+        }}
+        
+        .dt-button.buttons-excel:hover {{
+            background-color: #236A35 !important;
+            border-color: #236A35 !important;
+        }}
+        
+        .dt-button.buttons-csv {{
+            background-color: var(--sap-blue) !important;
+            border-color: var(--sap-blue) !important;
+            color: white !important;
+        }}
+        
+        .dt-button.buttons-csv:hover {{
+            background-color: var(--sap-dark-blue) !important;
+            border-color: var(--sap-dark-blue) !important;
+        }}
         
         /* DataTables */
         .dataTables_wrapper {{
@@ -957,7 +1005,7 @@ class NeoToCFFormatter:
         </div>"""
     
     def _generate_javascript(self, data: Dict[str, Any]) -> str:
-        """Generate JavaScript for DataTables with column filters"""
+        """Generate JavaScript for DataTables with column filters and export buttons"""
         return """    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
@@ -968,15 +1016,37 @@ class NeoToCFFormatter:
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
     
+    <!-- DataTables Buttons -->
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
     <script>
         $(document).ready(function() {
-            // Initialize Package Details table with Type column filter
+            // Common button configuration
+            var buttonConfig = [
+                {
+                    extend: 'excelHtml5',
+                    text: '📊 Excel',
+                    title: 'NEO_to_CF_Migration_Report',
+                    className: 'buttons-excel'
+                },
+                {
+                    extend: 'csvHtml5',
+                    text: '📄 CSV',
+                    className: 'buttons-csv'
+                }
+            ];
+            
+            // Initialize Package Details table with Type column filter and export buttons
             var packagesTable = $('#packagesTable').DataTable({
                 pageLength: 25,
                 lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
                 order: [[0, 'asc']],
                 responsive: true,
-                dom: '<"row"<"col-sm-6"l><"col-sm-6"f>>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
+                dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
+                buttons: buttonConfig,
                 initComplete: function () {
                     // Add column filter for Package Type (column index 1)
                     this.api().columns([1]).every(function () {
@@ -999,13 +1069,14 @@ class NeoToCFFormatter:
                 }
             });
             
-            // Initialize Version Comparison table with Status filter
+            // Initialize Version Comparison table with Status filter and export buttons
             var versionTable = $('#versionCompTable').DataTable({
                 pageLength: 25,
                 lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
                 order: [[3, 'desc'], [0, 'asc']],  // Sort by Status first, then Name
                 responsive: true,
-                dom: '<"row"<"col-sm-6"l><"col-sm-6"f>>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
+                dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
+                buttons: buttonConfig,
                 initComplete: function () {
                     // Add filter for Status column (column index 3)
                     this.api().columns([3]).every(function () {
@@ -1028,13 +1099,14 @@ class NeoToCFFormatter:
                 }
             });
             
-            // Initialize Deployment Status table with Package and Status filters
+            // Initialize Deployment Status table with Package and Status filters and export buttons
             var deployTable = $('#deploymentsTable').DataTable({
                 pageLength: 25,
                 lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
                 order: [[4, 'desc'], [0, 'asc']],  // Sort by Status first, then Artifact Name
                 responsive: true,
-                dom: '<"row"<"col-sm-6"l><"col-sm-6"f>>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
+                dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i"><"col-sm-6"p>>',
+                buttons: buttonConfig,
                 initComplete: function () {
                     // Add filters for Package (column 1) and Status (column 4)
                     this.api().columns([1, 4]).every(function () {
@@ -1060,13 +1132,14 @@ class NeoToCFFormatter:
                 }
             });
             
-            // Initialize Systems table with Adapter Type and Direction filters
+            // Initialize Systems table with Adapter Type and Direction filters and export buttons
             var systemsTable = $('#systemsTable').DataTable({
                 pageLength: 25,
                 lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
                 order: [[3, 'desc']],  // Sort by Usage Count
                 responsive: true,
-                dom: '<"row"<"col-sm-6"l><"col-sm-6"f>>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
+                dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i"><"col-sm-6"p>>',
+                buttons: buttonConfig,
                 initComplete: function () {
                     // Add filters for Adapter Type (column 1) and Direction (column 2)
                     this.api().columns([1, 2]).every(function () {
@@ -1091,12 +1164,14 @@ class NeoToCFFormatter:
                 }
             });
             
-            // Initialize Adapter Types Summary table (simpler, no filters needed)
+            // Initialize Adapter Types Summary table with export buttons (no filters needed)
             $('#adaptersTable').DataTable({
                 pageLength: 25,
                 lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
                 order: [[3, 'desc']],  // Sort by Total count
-                responsive: true
+                responsive: true,
+                dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
+                buttons: buttonConfig
             });
         });
     </script>"""
