@@ -517,17 +517,19 @@ class NeoToCFMigrationReport(BaseReport):
                 'available': False
             }
         
-        # Get aggregated variable usage
+        # Get file-level details (one row per file)
         variables_query = """
         SELECT 
-            envVariableList as variable_name,
-            COUNT(DISTINCT fileName) as file_count,
-            GROUP_CONCAT(DISTINCT fileType) as file_types,
-            GROUP_CONCAT(DISTINCT parentType) as parent_types
+            fileName as file_name,
+            fileType as file_type,
+            envVariableCount as var_count,
+            envVariableList as variables,
+            parentName as parent_name,
+            parentType as parent_type,
+            packageId as package_name
         FROM environment_variable_check
         WHERE tenant_id = ?
-        GROUP BY envVariableList
-        ORDER BY file_count DESC, variable_name
+        ORDER BY parentName, fileName
         """
         variables = self.execute_query(variables_query, (self.tenant_id,))
         

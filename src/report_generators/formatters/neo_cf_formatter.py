@@ -1104,25 +1104,32 @@ class NeoToCFFormatter:
                 </div>
                 
                 <div class="content-card">
-                    <h3>🔧 Environment Variables Usage</h3>
+                    <h3>🔧 Environment Variables Usage by File</h3>
                     <table class="table table-sm table-hover dataTable" id="envVarsTable">
                         <thead>
                             <tr>
-                                <th>Variable Name</th>
-                                <th class="text-center">Files Using</th>
-                                <th>File Types</th>
-                                <th>Parent Types</th>
+                                <th>File Name</th>
+                                <th>Type</th>
+                                <th class="text-center"># Variables</th>
+                                <th>Variable Names</th>
+                                <th>Parent IFlow/Script Collection</th>
+                                <th>Package</th>
                             </tr>
                         </thead>
                         <tbody>"""
         
         for var in variables:
+            # Format variable list (pipe-separated to comma-separated)
+            var_list = var.get('variables', '').replace('|', ', ')
+            
             html += f"""
                             <tr>
-                                <td><code>{var.get('variable_name', 'Unknown')}</code></td>
-                                <td class="text-center"><strong>{var.get('file_count', 0)}</strong></td>
-                                <td>{var.get('file_types', 'N/A')}</td>
-                                <td>{var.get('parent_types', 'N/A')}</td>
+                                <td><code>{var.get('file_name', 'Unknown')}</code></td>
+                                <td>{var.get('file_type', 'Unknown')}</td>
+                                <td class="text-center"><strong>{var.get('var_count', 0)}</strong></td>
+                                <td><code>{var_list}</code></td>
+                                <td>{var.get('parent_name', 'Unknown')} <span class="badge bg-secondary">{var.get('parent_type', '')}</span></td>
+                                <td>{var.get('package_name', 'Unknown')}</td>
                             </tr>"""
         
         html += """
