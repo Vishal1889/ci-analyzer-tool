@@ -391,11 +391,44 @@ class NeoToCFFormatter:
             box-shadow: 0 0 0 2px rgba(10, 110, 209, 0.1);
         }}
         
+        .dataTables_wrapper .dataTables_length {{
+            margin-bottom: 12px;
+        }}
+        
         .dataTables_wrapper .dataTables_length select {{
             border: 1px solid var(--sap-border);
             border-radius: 4px;
-            padding: 4px 8px;
+            padding: 6px 32px 6px 12px;
             font-size: 13px;
+            background-color: white;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236A6D70' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+            background-size: 12px;
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            cursor: pointer;
+            min-width: 70px;
+        }}
+        
+        .dataTables_wrapper .dataTables_length select:focus {{
+            outline: none;
+            border-color: var(--sap-blue);
+            box-shadow: 0 0 0 2px rgba(10, 110, 209, 0.1);
+        }}
+        
+        .dataTables_wrapper .dataTables_length select:hover {{
+            border-color: var(--sap-blue);
+        }}
+        
+        .dataTables_wrapper .dataTables_length label {{
+            font-size: 13px;
+            color: var(--sap-text-dark);
+            font-weight: 400;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }}
         
         .dataTables_wrapper .dataTables_info {{
