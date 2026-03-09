@@ -366,7 +366,7 @@ class NeoToCFMigrationReport(BaseReport):
                 WHEN sc.Version = r.Version THEN 'In Sync'
                 ELSE 'Out of Sync'
             END as deployment_status,
-            sc.ModifiedAt as last_modified
+            NULL as last_modified
         FROM script_collection sc
         INNER JOIN package p ON sc.PackageId = p.Id AND sc.tenant_id = p.tenant_id
         LEFT JOIN runtime r ON sc.Name = r.Id AND sc.tenant_id = r.tenant_id
@@ -386,7 +386,7 @@ class NeoToCFMigrationReport(BaseReport):
                 WHEN mm.Version = r.Version THEN 'In Sync'
                 ELSE 'Out of Sync'
             END as deployment_status,
-            mm.ModifiedAt as last_modified
+            NULL as last_modified
         FROM message_mapping mm
         INNER JOIN package p ON mm.PackageId = p.Id AND mm.tenant_id = p.tenant_id
         LEFT JOIN runtime r ON mm.Id = r.Id AND mm.tenant_id = r.tenant_id
@@ -406,7 +406,7 @@ class NeoToCFMigrationReport(BaseReport):
                 WHEN vm.Version = r.Version THEN 'In Sync'
                 ELSE 'Out of Sync'
             END as deployment_status,
-            vm.ModifiedAt as last_modified
+            NULL as last_modified
         FROM value_mapping vm
         INNER JOIN package p ON vm.PackageId = p.Id AND vm.tenant_id = p.tenant_id
         LEFT JOIN runtime r ON vm.Id = r.Id AND vm.tenant_id = r.tenant_id
