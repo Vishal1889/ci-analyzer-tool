@@ -145,22 +145,25 @@ class NeoToCFMigrationReport(BaseReport):
                 'message': f'{undeployed_count} IFlow(s) not deployed to runtime'
             })
         
-        # Package distribution for bar chart
+        # Package distribution for bar chart (always include all types, even if zero)
         package_distribution = [
             {
                 'type': 'Custom Packages',
                 'count': pkg_data.get('custom_packages', 0),
-                'color': '#0070F2'
-            },
-            {
-                'type': 'Standard (Configure-Only)',
-                'count': pkg_data.get('standard_readonly', 0),
-                'color': '#0F7D0F'
+                'color': '#0070F2',
+                'order': 1
             },
             {
                 'type': 'Standard (Editable)',
                 'count': pkg_data.get('standard_editable', 0),
-                'color': '#5E696E'
+                'color': '#5E696E',
+                'order': 2
+            },
+            {
+                'type': 'Standard (Configure-Only)',
+                'count': pkg_data.get('standard_readonly', 0),
+                'color': '#0F7D0F',
+                'order': 3
             }
         ]
         

@@ -1278,35 +1278,6 @@ class NeoToCFFormatter:
                     </div>
                 </div>
                 
-                <div class="row g-3 mb-4">
-                    <div class="col-md-6">
-                        <div class="content-card">
-                            <h3>📊 By Type</h3>
-                            <ul class="list-unstyled">"""
-        
-        for entry_type, count in by_type.items():
-            html += f"""
-                                <li><strong>{entry_type}:</strong> {count}</li>"""
-        
-        html += """
-                            </ul>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="content-card">
-                            <h3>🔑 By Key Type</h3>
-                            <ul class="list-unstyled">"""
-        
-        for key_type, count in by_key_type.items():
-            html += f"""
-                                <li><strong>{key_type}:</strong> {count}</li>"""
-        
-        html += """
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-                
                 <div class="content-card">
                     <h3>🔑 Keystore Entries</h3>
                     <table class="table table-sm table-hover dataTable" id="keystoreTable">
