@@ -44,10 +44,14 @@ class PackageVersionComparisonReport(BaseReport):
         # Load Discover version data if available
         discover_query = """
         SELECT 
-            package_id,
-            latest_version,
-            version_status
-        FROM package_discover_versions
+            PackageID as package_id,
+            DiscoverVersion as latest_version,
+            CASE 
+                WHEN CurrentVersion = DiscoverVersion THEN 'Up to date'
+                WHEN DiscoverVersion = 'Manual check needed' THEN 'Manual check needed'
+                ELSE 'Update available'
+            END as version_status
+        FROM package_discover_version
         WHERE tenant_id = ?
         """
         

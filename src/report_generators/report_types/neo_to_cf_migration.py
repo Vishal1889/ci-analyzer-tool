@@ -276,7 +276,7 @@ class NeoToCFMigrationReport(BaseReport):
                 WHEN i.Version = r.Version THEN 'Synced'
                 ELSE 'Out of Sync'
             END as deployment_status,
-            i.ModifiedDate as last_modified
+            i.ModifiedAt as last_modified
         FROM iflow i
         INNER JOIN package p ON i.PackageId = p.Id AND i.tenant_id = p.tenant_id
         LEFT JOIN runtime r ON i.Id = r.Id AND i.tenant_id = r.tenant_id
