@@ -1024,154 +1024,43 @@ class NeoToCFFormatter:
     
     <script>
         $(document).ready(function() {
-            // Common button configuration
+            // Common CSV export button configuration
             var buttonConfig = [
                 {
-                    extend: 'excelHtml5',
-                    text: '📊 Excel',
-                    title: 'NEO_to_CF_Migration_Report',
-                    className: 'buttons-excel'
-                },
-                {
                     extend: 'csvHtml5',
-                    text: '📄 CSV',
+                    text: '📄 Export CSV',
                     className: 'buttons-csv'
                 }
             ];
             
-            // Initialize Package Details table with Type column filter and export buttons
-            var packagesTable = $('#packagesTable').DataTable({
+            // Common DataTable configuration
+            var commonConfig = {
                 pageLength: 25,
                 lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
-                order: [[0, 'asc']],
-                responsive: true,
-                dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
-                buttons: buttonConfig,
-                initComplete: function () {
-                    // Add column filter for Package Type (column index 1)
-                    this.api().columns([1]).every(function () {
-                        var column = this;
-                        var select = $('<select class="form-select form-select-sm"><option value="">All Types</option></select>')
-                            .appendTo($(column.header()))
-                            .on('change', function () {
-                                var val = $.fn.dataTable.util.escapeRegex($(this).val());
-                                column.search(val ? '^'+val+'$' : '', true, false).draw();
-                            })
-                            .on('click', function(e) {
-                                e.stopPropagation();
-                            });
-                        
-                        column.data().unique().sort().each(function (d, j) {
-                            var text = $(d).text() || d;
-                            select.append('<option value="'+text+'">'+text+'</option>');
-                        });
-                    });
-                }
-            });
-            
-            // Initialize Version Comparison table with Status filter and export buttons
-            var versionTable = $('#versionCompTable').DataTable({
-                pageLength: 25,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
-                order: [[3, 'desc'], [0, 'asc']],  // Sort by Status first, then Name
-                responsive: true,
-                dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
-                buttons: buttonConfig,
-                initComplete: function () {
-                    // Add filter for Status column (column index 3)
-                    this.api().columns([3]).every(function () {
-                        var column = this;
-                        var select = $('<select class="form-select form-select-sm"><option value="">All Status</option></select>')
-                            .appendTo($(column.header()))
-                            .on('change', function () {
-                                var val = $.fn.dataTable.util.escapeRegex($(this).val());
-                                column.search(val ? '^'+val+'$' : '', true, false).draw();
-                            })
-                            .on('click', function(e) {
-                                e.stopPropagation();
-                            });
-                        
-                        column.data().unique().sort().each(function (d, j) {
-                            var text = $(d).text() || d;
-                            select.append('<option value="'+text+'">'+text+'</option>');
-                        });
-                    });
-                }
-            });
-            
-            // Initialize Deployment Status table with Package and Status filters and export buttons
-            var deployTable = $('#deploymentsTable').DataTable({
-                pageLength: 25,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
-                order: [[4, 'desc'], [0, 'asc']],  // Sort by Status first, then Artifact Name
-                responsive: true,
-                dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i"><"col-sm-6"p>>',
-                buttons: buttonConfig,
-                initComplete: function () {
-                    // Add filters for Package (column 1) and Status (column 4)
-                    this.api().columns([1, 4]).every(function () {
-                        var column = this;
-                        var columnIdx = column.index();
-                        var placeholder = columnIdx === 1 ? 'All Packages' : 'All Status';
-                        
-                        var select = $('<select class="form-select form-select-sm"><option value="">'+placeholder+'</option></select>')
-                            .appendTo($(column.header()))
-                            .on('change', function () {
-                                var val = $.fn.dataTable.util.escapeRegex($(this).val());
-                                column.search(val ? '^'+val+'$' : '', true, false).draw();
-                            })
-                            .on('click', function(e) {
-                                e.stopPropagation();
-                            });
-                        
-                        column.data().unique().sort().each(function (d, j) {
-                            var text = $(d).text() || d;
-                            select.append('<option value="'+text+'">'+text+'</option>');
-                        });
-                    });
-                }
-            });
-            
-            // Initialize Systems table with Adapter Type and Direction filters and export buttons
-            var systemsTable = $('#systemsTable').DataTable({
-                pageLength: 25,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
-                order: [[3, 'desc']],  // Sort by Usage Count
-                responsive: true,
-                dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i"><"col-sm-6"p>>',
-                buttons: buttonConfig,
-                initComplete: function () {
-                    // Add filters for Adapter Type (column 1) and Direction (column 2)
-                    this.api().columns([1, 2]).every(function () {
-                        var column = this;
-                        var columnIdx = column.index();
-                        var placeholder = columnIdx === 1 ? 'All Adapters' : 'All Directions';
-                        
-                        var select = $('<select class="form-select form-select-sm"><option value="">'+placeholder+'</option></select>')
-                            .appendTo($(column.header()))
-                            .on('change', function () {
-                                var val = $.fn.dataTable.util.escapeRegex($(this).val());
-                                column.search(val ? '^'+val+'$' : '', true, false).draw();
-                            })
-                            .on('click', function(e) {
-                                e.stopPropagation();
-                            });
-                        
-                        column.data().unique().sort().each(function (d, j) {
-                            select.append('<option value="'+d+'">'+d+'</option>');
-                        });
-                    });
-                }
-            });
-            
-            // Initialize Adapter Types Summary table with export buttons (no filters needed)
-            $('#adaptersTable').DataTable({
-                pageLength: 25,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
-                order: [[3, 'desc']],  // Sort by Total count
                 responsive: true,
                 dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
                 buttons: buttonConfig
-            });
+            };
+            
+            // Initialize all tables with CSV export only (no column filters)
+            $('#packagesTable').DataTable($.extend({}, commonConfig, {
+                order: [[0, 'asc']]
+            }));
+            
+            $('#versionCompTable').DataTable($.extend({}, commonConfig, {
+                order: [[3, 'desc'], [0, 'asc']]
+            }));
+            
+            $('#deploymentsTable').DataTable($.extend({}, commonConfig, {
+                order: [[4, 'desc'], [0, 'asc']]
+            }));
+            
+            $('#systemsTable').DataTable($.extend({}, commonConfig, {
+                order: [[3, 'desc']]
+            }));
+            
+            $('#adaptersTable').DataTable($.extend({}, commonConfig, {
+                order: [[3, 'desc']]
+            }));
         });
     </script>"""
