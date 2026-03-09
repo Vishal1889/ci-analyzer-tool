@@ -47,9 +47,6 @@ class NeoToCFFormatter:
     <!-- DataTables CSS -->
     <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    
     <style>
 {self._generate_css()}
     </style>
@@ -204,8 +201,8 @@ class NeoToCFFormatter:
             font-weight: 600;
         }}
         
-        /* Charts - Compact Size */
-        .chart-container {{
+        /* Horizontal Stacked Bar Charts */
+        .bar-chart-container {{
             background: white;
             border-radius: 4px;
             padding: 20px;
@@ -214,17 +211,74 @@ class NeoToCFFormatter:
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }}
         
-        .chart-container h4 {{
+        .bar-chart-container h4 {{
             color: var(--sap-dark-blue);
             margin-bottom: 16px;
             font-size: 14px;
             font-weight: 600;
         }}
         
-        .chart-wrapper {{
+        .stacked-bar {{
+            display: flex;
+            width: 100%;
+            height: 40px;
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            margin-bottom: 16px;
+        }}
+        
+        .bar-segment {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 12px;
+            transition: all 0.3s ease;
             position: relative;
-            height: 180px;
-            max-width: 300px;
+        }}
+        
+        .bar-segment:hover {{
+            opacity: 0.85;
+            transform: scaleY(1.05);
+            cursor: pointer;
+        }}
+        
+        .bar-segment span {{
+            white-space: nowrap;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }}
+        
+        .bar-legend {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-top: 12px;
+        }}
+        
+        .legend-item {{
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+            color: var(--sap-text-dark);
+        }}
+        
+        .legend-color {{
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            margin-right: 6px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }}
+        
+        .legend-label {{
+            font-weight: 500;
+        }}
+        
+        .legend-value {{
+            margin-left: 4px;
+            color: var(--sap-text-gray);
         }}
         
         /* Alerts */
@@ -354,6 +408,52 @@ class NeoToCFFormatter:
             </li>
         </ul>"""
     
+    def _generate_stacked_bar(self, data_items: list, title: str) -> str:
+        """Generate a horizontal stacked bar chart"""
+        total = sum(item['count'] for item in data_items if item['count'] > 0)
+        if total == 0:
+            return f"""
+                <div class="bar-chart-container">
+                    <h4>{title}</h4>
+                    <p class="text-muted">No data available</p>
+                </div>"""
+        
+        # Generate bar segments
+        segments_html = ""
+        for item in data_items:
+            if item['count'] > 0:
+                percentage = (item['count'] / total) * 100
+                # Only show label if segment is wide enough
+                label = f"{percentage:.0f}%" if percentage >= 8 else ""
+                segments_html += f"""
+                    <div class="bar-segment" style="flex: {percentage}; background-color: {item['color']};" 
+                         title="{item['type']}: {item['count']} ({percentage:.1f}%)">
+                        <span>{label}</span>
+                    </div>"""
+        
+        # Generate legend
+        legend_html = ""
+        for item in data_items:
+            if item['count'] > 0:
+                percentage = (item['count'] / total) * 100
+                legend_html += f"""
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: {item['color']};"></div>
+                        <span class="legend-label">{item['type']}</span>
+                        <span class="legend-value">({item['count']} • {percentage:.1f}%)</span>
+                    </div>"""
+        
+        return f"""
+                <div class="bar-chart-container">
+                    <h4>{title}</h4>
+                    <div class="stacked-bar">
+                        {segments_html}
+                    </div>
+                    <div class="bar-legend">
+                        {legend_html}
+                    </div>
+                </div>"""
+    
     def _generate_tab_executive_summary(self, data: Dict[str, Any]) -> str:
         """Generate executive summary tab"""
         dashboard = data.get('dashboard', {})
@@ -401,52 +501,45 @@ class NeoToCFFormatter:
             kpi_html += """
                 </div>"""
         
-        # Package Distribution Chart + Top Packages
+        # Package Distribution Bar Chart + Top Packages
         package_dist = dashboard.get('package_distribution', [])
         top_packages = dashboard.get('top_packages', [])
         
-        kpi_html += """
-                <div class="row">
-                    <div class="col-md-4">
-                        <div class="chart-container">
-                            <h4>Package Distribution</h4>
-                            <div class="chart-wrapper">
-                                <canvas id="packageDistChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-8">
-                        <div class="content-card">
-                            <h3>📊 Top 5 Packages by Complexity</h3>
-                            <div class="table-responsive">
-                                <table class="table table-sm table-hover">
-                                    <thead>
-                                        <tr>
-                                            <th>Package</th>
-                                            <th class="text-center">IFlows</th>
-                                            <th class="text-center">Scripts</th>
-                                            <th class="text-center">Mappings</th>
-                                            <th class="text-center">Total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>"""
+        # Generate stacked bar for package distribution
+        pkg_bar = self._generate_stacked_bar(package_dist, "📦 Package Distribution")
+        
+        kpi_html += f"""
+                {pkg_bar}
+                
+                <div class="content-card">
+                    <h3>📊 Top 5 Packages by Complexity</h3>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Package</th>
+                                    <th class="text-center">IFlows</th>
+                                    <th class="text-center">Scripts</th>
+                                    <th class="text-center">Mappings</th>
+                                    <th class="text-center">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>"""
         
         for pkg in top_packages[:5]:
             mappings = pkg.get('msg_map_count', 0) + pkg.get('val_map_count', 0)
             kpi_html += f"""
-                                        <tr>
-                                            <td>{pkg.get('package_name', 'Unknown')}</td>
-                                            <td class="text-center">{pkg.get('iflow_count', 0)}</td>
-                                            <td class="text-center">{pkg.get('script_count', 0)}</td>
-                                            <td class="text-center">{mappings}</td>
-                                            <td class="text-center"><strong>{pkg.get('total_artifacts', 0)}</strong></td>
-                                        </tr>"""
+                                <tr>
+                                    <td>{pkg.get('package_name', 'Unknown')}</td>
+                                    <td class="text-center">{pkg.get('iflow_count', 0)}</td>
+                                    <td class="text-center">{pkg.get('script_count', 0)}</td>
+                                    <td class="text-center">{mappings}</td>
+                                    <td class="text-center"><strong>{pkg.get('total_artifacts', 0)}</strong></td>
+                                </tr>"""
         
         kpi_html += """
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>"""
@@ -593,6 +686,14 @@ class NeoToCFFormatter:
         deployments = versions.get('artifact_deployments', [])
         stats = versions.get('deployment_stats', {})
         
+        # Prepare deployment data for stacked bar
+        deploy_data = [
+            {'type': 'Synced', 'count': stats.get('synced', 0), 'color': '#2E844A'},
+            {'type': 'Out of Sync', 'count': stats.get('out_of_sync', 0), 'color': '#F0AB00'},
+            {'type': 'Not Deployed', 'count': stats.get('not_deployed', 0), 'color': '#6A6D70'}
+        ]
+        deploy_bar = self._generate_stacked_bar(deploy_data, "📊 Deployment Status Distribution")
+        
         html = f"""            <div class="tab-pane fade" id="deployment" role="tabpanel">
                 <div class="row g-3 mb-4">
                     <div class="col-md-4">
@@ -615,16 +716,7 @@ class NeoToCFFormatter:
                     </div>
                 </div>
                 
-                <div class="row mb-4">
-                    <div class="col-md-4">
-                        <div class="chart-container">
-                            <h4>Deployment Status</h4>
-                            <div class="chart-wrapper">
-                                <canvas id="deploymentChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                {deploy_bar}
                 
                 <div class="content-card">
                     <h3>📊 Deployment Status Details</h3>
@@ -668,6 +760,17 @@ class NeoToCFFormatter:
         adapters = systems_data.get('adapters', [])
         stats = systems_data.get('stats', {})
         
+        # Prepare adapter data for stacked bar (top 8)
+        adapter_colors = ['#0A6ED1', '#2E844A', '#F0AB00', '#6A6D70', '#E52929', '#00A8E1', '#FF9500', '#8B8B8B']
+        adapter_data = []
+        for i, adapter in enumerate(adapters[:8]):
+            adapter_data.append({
+                'type': adapter.get('adapter_type', 'Unknown'),
+                'count': adapter.get('total_count', 0),
+                'color': adapter_colors[i] if i < len(adapter_colors) else '#8B8B8B'
+            })
+        adapter_bar = self._generate_stacked_bar(adapter_data, "🔌 Top Adapter Types Distribution")
+        
         html = f"""            <div class="tab-pane fade" id="systems" role="tabpanel">
                 <div class="row g-3 mb-4">
                     <div class="col-md-4">
@@ -690,16 +793,7 @@ class NeoToCFFormatter:
                     </div>
                 </div>
                 
-                <div class="row mb-4">
-                    <div class="col-md-4">
-                        <div class="chart-container">
-                            <h4>Top Adapter Types</h4>
-                            <div class="chart-wrapper">
-                                <canvas id="adapterChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                {adapter_bar}
                 
                 <div class="content-card">
                     <h3>🌐 Connected Systems</h3>
@@ -769,27 +863,8 @@ class NeoToCFFormatter:
         </div>"""
     
     def _generate_javascript(self, data: Dict[str, Any]) -> str:
-        """Generate JavaScript for charts and tables"""
-        dashboard = data.get('dashboard', {})
-        package_dist = dashboard.get('package_distribution', [])
-        
-        versions = data.get('versions', {})
-        deploy_stats = versions.get('deployment_stats', {})
-        
-        systems_data = data.get('systems', {})
-        adapters = systems_data.get('adapters', [])
-        
-        # Prepare chart data
-        pkg_labels = [p['type'] for p in package_dist]
-        pkg_values = [p['count'] for p in package_dist]
-        pkg_colors = [p['color'] for p in package_dist]
-        
-        deploy_values = [deploy_stats.get('synced', 0), deploy_stats.get('out_of_sync', 0), deploy_stats.get('not_deployed', 0)]
-        
-        adapter_labels = [a['adapter_type'] for a in adapters[:8]]  # Top 8
-        adapter_values = [a['total_count'] for a in adapters[:8]]
-        
-        return f"""    <!-- Bootstrap JS -->
+        """Generate JavaScript for DataTables only"""
+        return """    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <!-- jQuery -->
@@ -801,95 +876,12 @@ class NeoToCFFormatter:
     
     <script>
         // Initialize DataTables
-        $(document).ready(function() {{
-            $('.dataTable').DataTable({{
+        $(document).ready(function() {
+            $('.dataTable').DataTable({
                 pageLength: 25,
                 lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
                 order: [[0, 'asc']],
                 responsive: true
-            }});
-            
-            // Initialize charts
-            initCharts();
-        }});
-        
-        function initCharts() {{
-            // Package Distribution Chart
-            if (document.getElementById('packageDistChart')) {{
-                new Chart(document.getElementById('packageDistChart'), {{
-                    type: 'doughnut',
-                    data: {{
-                        labels: {pkg_labels},
-                        datasets: [{{
-                            data: {pkg_values},
-                            backgroundColor: {pkg_colors},
-                            borderWidth: 1,
-                            borderColor: '#fff'
-                        }}]
-                    }},
-                    options: {{
-                        responsive: true,
-                        maintainAspectRatio: true,
-                        plugins: {{
-                            legend: {{
-                                position: 'right',
-                                labels: {{ padding: 10, font: {{ size: 11 }} }}
-                            }}
-                        }}
-                    }}
-                }});
-            }}
-            
-            // Deployment Status Chart
-            if (document.getElementById('deploymentChart')) {{
-                new Chart(document.getElementById('deploymentChart'), {{
-                    type: 'doughnut',
-                    data: {{
-                        labels: ['Synced', 'Out of Sync', 'Not Deployed'],
-                        datasets: [{{
-                            data: {deploy_values},
-                            backgroundColor: ['#2E844A', '#F0AB00', '#6A6D70'],
-                            borderWidth: 1,
-                            borderColor: '#fff'
-                        }}]
-                    }},
-                    options: {{
-                        responsive: true,
-                        maintainAspectRatio: true,
-                        plugins: {{
-                            legend: {{
-                                position: 'right',
-                                labels: {{ padding: 10, font: {{ size: 11 }} }}
-                            }}
-                        }}
-                    }}
-                }});
-            }}
-            
-            // Adapter Distribution Chart
-            if (document.getElementById('adapterChart')) {{
-                new Chart(document.getElementById('adapterChart'), {{
-                    type: 'doughnut',
-                    data: {{
-                        labels: {adapter_labels},
-                        datasets: [{{
-                            data: {adapter_values},
-                            backgroundColor: ['#0A6ED1', '#2E844A', '#F0AB00', '#6A6D70', '#E52929', '#00A8E1', '#FF9500', '#8B8B8B'],
-                            borderWidth: 1,
-                            borderColor: '#fff'
-                        }}]
-                    }},
-                    options: {{
-                        responsive: true,
-                        maintainAspectRatio: true,
-                        plugins: {{
-                            legend: {{
-                                position: 'right',
-                                labels: {{ padding: 8, font: {{ size: 10 }} }}
-                            }}
-                        }}
-                    }}
-                }});
-            }}
-        }}
+            });
+        });
     </script>"""
