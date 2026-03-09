@@ -523,8 +523,7 @@ class NeoToCFMigrationReport(BaseReport):
             envVariableList as variable_name,
             COUNT(DISTINCT fileName) as file_count,
             GROUP_CONCAT(DISTINCT fileType) as file_types,
-            GROUP_CONCAT(DISTINCT parentType) as parent_types,
-            GROUP_CONCAT(DISTINCT packageId || '|' || fileName || '|' || parentName, '; ') as usage_details
+            GROUP_CONCAT(DISTINCT parentType) as parent_types
         FROM environment_variable_check
         WHERE tenant_id = ?
         GROUP BY envVariableList
