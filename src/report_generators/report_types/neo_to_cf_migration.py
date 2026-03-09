@@ -63,12 +63,13 @@ class NeoToCFMigrationReport(BaseReport):
         """Generate executive summary dashboard data"""
         
         # Get package counts by type
+        # Logic: Custom = EDIT_ALLOWED + Not PartnerContent + Not SAP Vendor
         package_query = """
         SELECT 
             COUNT(*) as total_packages,
             SUM(CASE WHEN Mode = 'READ_ONLY' THEN 1 ELSE 0 END) as standard_readonly,
             SUM(CASE WHEN Mode != 'READ_ONLY' AND (PartnerContent = 1 OR LOWER(Vendor) LIKE '%sap%') THEN 1 ELSE 0 END) as standard_editable,
-            SUM(CASE WHEN Mode != 'READ_ONLY' AND (PartnerContent = 0 OR PartnerContent IS NULL) AND (Vendor IS NULL OR LOWER(Vendor) NOT LIKE '%sap%') THEN 1 ELSE 0 END) as custom_packages
+            SUM(CASE WHEN Mode != 'READ_ONLY' AND (PartnerContent != 1 OR PartnerContent IS NULL) AND (LOWER(Vendor) NOT LIKE '%sap%' OR Vendor IS NULL OR TRIM(Vendor) = '') THEN 1 ELSE 0 END) as custom_packages
         FROM package
         WHERE tenant_id = ?
         """
