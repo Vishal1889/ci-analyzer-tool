@@ -323,6 +323,63 @@ class NeoToCFFormatter:
             font-size: 13px;
         }}
         
+        .dataTables_wrapper .dataTables_filter {{
+            float: none;
+            text-align: left;
+            margin-bottom: 12px;
+        }}
+        
+        .dataTables_wrapper .dataTables_filter input {{
+            border: 1px solid var(--sap-border);
+            border-radius: 4px;
+            padding: 6px 12px;
+            width: 300px;
+            font-size: 13px;
+        }}
+        
+        .dataTables_wrapper .dataTables_filter input:focus {{
+            outline: none;
+            border-color: var(--sap-blue);
+            box-shadow: 0 0 0 2px rgba(10, 110, 209, 0.1);
+        }}
+        
+        .dataTables_wrapper .dataTables_length select {{
+            border: 1px solid var(--sap-border);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 13px;
+        }}
+        
+        .dataTables_wrapper .dataTables_info {{
+            font-size: 12px;
+            color: var(--sap-text-gray);
+        }}
+        
+        .dataTables_wrapper .dataTables_paginate {{
+            margin-top: 12px;
+        }}
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button {{
+            padding: 4px 10px;
+            margin: 0 2px;
+            border-radius: 3px;
+            border: 1px solid var(--sap-border);
+            background-color: white;
+            color: var(--sap-text-dark);
+        }}
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button:hover {{
+            background-color: var(--sap-light-blue);
+            border-color: var(--sap-blue);
+            color: var(--sap-blue);
+        }}
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button.current {{
+            background-color: var(--sap-blue);
+            border-color: var(--sap-blue);
+            color: white;
+        }}
+        
         table.dataTable thead th {{
             background-color: var(--sap-light-blue);
             color: var(--sap-dark-blue);
@@ -341,6 +398,43 @@ class NeoToCFFormatter:
         
         table.dataTable tbody td {{
             padding: 10px 8px;
+        }}
+        
+        /* Column Filters */
+        .column-filters {{
+            background-color: var(--sap-light-blue);
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+        }}
+        
+        .column-filters select {{
+            border: 1px solid var(--sap-border);
+            border-radius: 4px;
+            padding: 6px 12px;
+            margin: 0 8px 8px 0;
+            font-size: 13px;
+            background-color: white;
+            min-width: 150px;
+        }}
+        
+        .column-filters select:focus {{
+            outline: none;
+            border-color: var(--sap-blue);
+            box-shadow: 0 0 0 2px rgba(10, 110, 209, 0.1);
+        }}
+        
+        .column-filters label {{
+            font-size: 12px;
+            color: var(--sap-text-gray);
+            margin-right: 4px;
+            font-weight: 500;
+        }}
+        
+        .filter-group {{
+            display: inline-block;
+            margin-right: 16px;
+            margin-bottom: 8px;
         }}
         
         /* Footer */
@@ -863,7 +957,7 @@ class NeoToCFFormatter:
         </div>"""
     
     def _generate_javascript(self, data: Dict[str, Any]) -> str:
-        """Generate JavaScript for DataTables only"""
+        """Generate JavaScript for DataTables with column filters"""
         return """    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
@@ -875,12 +969,133 @@ class NeoToCFFormatter:
     <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
     
     <script>
-        // Initialize DataTables
         $(document).ready(function() {
-            $('.dataTable').DataTable({
+            // Initialize Package Details table with Type column filter
+            var packagesTable = $('#packagesTable').DataTable({
                 pageLength: 25,
-                lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
                 order: [[0, 'asc']],
+                responsive: true,
+                dom: '<"row"<"col-sm-6"l><"col-sm-6"f>>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
+                initComplete: function () {
+                    // Add column filter for Package Type (column index 1)
+                    this.api().columns([1]).every(function () {
+                        var column = this;
+                        var select = $('<select class="form-select form-select-sm"><option value="">All Types</option></select>')
+                            .appendTo($(column.header()))
+                            .on('change', function () {
+                                var val = $.fn.dataTable.util.escapeRegex($(this).val());
+                                column.search(val ? '^'+val+'$' : '', true, false).draw();
+                            })
+                            .on('click', function(e) {
+                                e.stopPropagation();
+                            });
+                        
+                        column.data().unique().sort().each(function (d, j) {
+                            var text = $(d).text() || d;
+                            select.append('<option value="'+text+'">'+text+'</option>');
+                        });
+                    });
+                }
+            });
+            
+            // Initialize Version Comparison table with Status filter
+            var versionTable = $('#versionCompTable').DataTable({
+                pageLength: 25,
+                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
+                order: [[3, 'desc'], [0, 'asc']],  // Sort by Status first, then Name
+                responsive: true,
+                dom: '<"row"<"col-sm-6"l><"col-sm-6"f>>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
+                initComplete: function () {
+                    // Add filter for Status column (column index 3)
+                    this.api().columns([3]).every(function () {
+                        var column = this;
+                        var select = $('<select class="form-select form-select-sm"><option value="">All Status</option></select>')
+                            .appendTo($(column.header()))
+                            .on('change', function () {
+                                var val = $.fn.dataTable.util.escapeRegex($(this).val());
+                                column.search(val ? '^'+val+'$' : '', true, false).draw();
+                            })
+                            .on('click', function(e) {
+                                e.stopPropagation();
+                            });
+                        
+                        column.data().unique().sort().each(function (d, j) {
+                            var text = $(d).text() || d;
+                            select.append('<option value="'+text+'">'+text+'</option>');
+                        });
+                    });
+                }
+            });
+            
+            // Initialize Deployment Status table with Package and Status filters
+            var deployTable = $('#deploymentsTable').DataTable({
+                pageLength: 25,
+                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
+                order: [[4, 'desc'], [0, 'asc']],  // Sort by Status first, then Artifact Name
+                responsive: true,
+                dom: '<"row"<"col-sm-6"l><"col-sm-6"f>>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
+                initComplete: function () {
+                    // Add filters for Package (column 1) and Status (column 4)
+                    this.api().columns([1, 4]).every(function () {
+                        var column = this;
+                        var columnIdx = column.index();
+                        var placeholder = columnIdx === 1 ? 'All Packages' : 'All Status';
+                        
+                        var select = $('<select class="form-select form-select-sm"><option value="">'+placeholder+'</option></select>')
+                            .appendTo($(column.header()))
+                            .on('change', function () {
+                                var val = $.fn.dataTable.util.escapeRegex($(this).val());
+                                column.search(val ? '^'+val+'$' : '', true, false).draw();
+                            })
+                            .on('click', function(e) {
+                                e.stopPropagation();
+                            });
+                        
+                        column.data().unique().sort().each(function (d, j) {
+                            var text = $(d).text() || d;
+                            select.append('<option value="'+text+'">'+text+'</option>');
+                        });
+                    });
+                }
+            });
+            
+            // Initialize Systems table with Adapter Type and Direction filters
+            var systemsTable = $('#systemsTable').DataTable({
+                pageLength: 25,
+                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
+                order: [[3, 'desc']],  // Sort by Usage Count
+                responsive: true,
+                dom: '<"row"<"col-sm-6"l><"col-sm-6"f>>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
+                initComplete: function () {
+                    // Add filters for Adapter Type (column 1) and Direction (column 2)
+                    this.api().columns([1, 2]).every(function () {
+                        var column = this;
+                        var columnIdx = column.index();
+                        var placeholder = columnIdx === 1 ? 'All Adapters' : 'All Directions';
+                        
+                        var select = $('<select class="form-select form-select-sm"><option value="">'+placeholder+'</option></select>')
+                            .appendTo($(column.header()))
+                            .on('change', function () {
+                                var val = $.fn.dataTable.util.escapeRegex($(this).val());
+                                column.search(val ? '^'+val+'$' : '', true, false).draw();
+                            })
+                            .on('click', function(e) {
+                                e.stopPropagation();
+                            });
+                        
+                        column.data().unique().sort().each(function (d, j) {
+                            select.append('<option value="'+d+'">'+d+'</option>');
+                        });
+                    });
+                }
+            });
+            
+            // Initialize Adapter Types Summary table (simpler, no filters needed)
+            $('#adaptersTable').DataTable({
+                pageLength: 25,
+                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
+                order: [[3, 'desc']],  // Sort by Total count
                 responsive: true
             });
         });
