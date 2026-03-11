@@ -14,8 +14,22 @@ import platform
 import subprocess
 import threading
 from pathlib import Path
-from tkinter import filedialog, messagebox, PhotoImage
 import base64 as _b64
+
+# ── Analysis-runner mode ───────────────────────────────────────────────────────
+# When the frozen binary is called with --run-analysis it skips the GUI entirely
+# and runs main.main() using the bundled Python environment (which has all
+# required packages like python-dotenv, requests, etc.).  This avoids the
+# ModuleNotFoundError that occurs when system Python is used instead.
+if "--run-analysis" in sys.argv:
+    sys.argv.remove("--run-analysis")
+    if getattr(sys, "frozen", False):
+        # Make bundled modules (main.py, src/) importable
+        sys.path.insert(0, sys._MEIPASS)
+    import main as _main_module
+    sys.exit(_main_module.main())
+
+from tkinter import filedialog, messagebox, PhotoImage
 
 import customtkinter as ctk
 
@@ -705,18 +719,10 @@ class CIAnalyzerUI(ctk.CTk):
         self._set_status("● Running…", color="#FFA040")
         self.stop_btn.configure(state="normal")
 
-        if getattr(sys, 'frozen', False):
-            import shutil
-            py = shutil.which("python3") or shutil.which("python")
-            if not py:
-                messagebox.showerror(
-                    "Python Not Found",
-                    "Running analysis requires Python 3 to be installed.\n"
-                    "Please install Python 3 from https://python.org"
-                )
-                return
-            script = Path(sys._MEIPASS) / "main.py"
-            cmd = [py, str(script)]
+        if getattr(sys, "frozen", False):
+            # Re-invoke the frozen binary with --run-analysis so it uses the
+            # bundled Python environment (all packages already included).
+            cmd = [sys.executable, "--run-analysis"]
             cwd = str(_BASE_DIR)
         else:
             cmd = [sys.executable, str(MAIN_SCRIPT)]
