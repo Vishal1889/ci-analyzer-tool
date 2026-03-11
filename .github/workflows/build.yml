@@ -41,6 +41,31 @@ jobs:
             --collect-all pandas `
             ui.py
 
+      - name: Sign Windows EXE (self-signed)
+        shell: pwsh
+        run: |
+          # Create a self-signed code-signing certificate valid for 5 years
+          $cert = New-SelfSignedCertificate `
+            -Type CodeSigning `
+            -Subject "CN=CI Analyzer, O=CI Analyzer Tool, C=US" `
+            -KeyUsage DigitalSignature `
+            -FriendlyName "CI Analyzer Code Signing" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3") `
+            -NotAfter (Get-Date).AddYears(5)
+
+          # Sign the EXE with a public timestamp server
+          $result = Set-AuthenticodeSignature `
+            -FilePath "dist\CI-Analyzer.exe" `
+            -Certificate $cert `
+            -TimestampServer "http://timestamp.digicert.com" `
+            -HashAlgorithm SHA256
+
+          Write-Host "Signing status: $($result.Status)"
+          if ($result.Status -ne "Valid") {
+            Write-Warning "Signing returned status: $($result.Status) - $($result.StatusMessage)"
+          }
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
