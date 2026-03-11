@@ -32,6 +32,7 @@ jobs:
             --name "CI-Analyzer" `
             --icon icon.ico `
             --add-data "src;src" `
+            --add-data "main.py;." `
             ui.py
 
       - name: Upload Windows artifact
@@ -89,6 +90,7 @@ jobs:
             --name "CI-Analyzer" \
             --icon app.icns \
             --add-data "src:src" \
+            --add-data "main.py:." \
             ui.py
 
       - name: Zip macOS app for distribution
