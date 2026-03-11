@@ -33,6 +33,12 @@ jobs:
             --icon icon.ico `
             --add-data "src;src" `
             --add-data "main.py;." `
+            --collect-all requests `
+            --collect-all requests_oauthlib `
+            --collect-all dotenv `
+            --collect-all cryptography `
+            --collect-all cron_descriptor `
+            --collect-all pandas `
             ui.py
 
       - name: Upload Windows artifact
@@ -91,6 +97,12 @@ jobs:
             --icon app.icns \
             --add-data "src:src" \
             --add-data "main.py:." \
+            --collect-all requests \
+            --collect-all requests_oauthlib \
+            --collect-all dotenv \
+            --collect-all cryptography \
+            --collect-all cron_descriptor \
+            --collect-all pandas \
             ui.py
 
       - name: Zip macOS app for distribution
