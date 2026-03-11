@@ -176,6 +176,9 @@ jobs:
           name: CI-Analyzer-macOS
           path: artifacts/macos
 
+      - name: Checkout code (for cert file)
+        uses: actions/checkout@v4
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -188,13 +191,23 @@ jobs:
             |----------|------|-------|
             | Windows | `CI-Analyzer.exe` | Double-click to run, no Python needed |
             | macOS | `CI-Analyzer-macOS.zip` | Unzip and run the binary, no Python needed |
+            | Windows Trust | `ci-analyzer-codesign.cer` | Public code-signing certificate |
 
             ### First Run
             On first launch the app will create a `.env` file in the same folder where you save your configuration.
 
             > **macOS note:** If Gatekeeper blocks the app, right-click → Open → Open anyway.
+
+            ### Windows SmartScreen / Trust
+            The Windows EXE is signed with a self-signed certificate. To trust it on your machine:
+            1. Download `ci-analyzer-codesign.cer` from this release
+            2. Double-click the `.cer` file → **Install Certificate**
+            3. Select **Local Machine** → **Place all certificates in the following store**
+            4. Browse → select **Trusted Root Certification Authorities** → Finish
+            5. Repeat steps 2–4 and select **Trusted Publishers** instead
           files: |
             artifacts/windows/CI-Analyzer.exe
             artifacts/macos/CI-Analyzer-macOS.zip
+            ci-analyzer-codesign.cer
           draft: false
           prerelease: false
