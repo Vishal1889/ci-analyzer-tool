@@ -455,20 +455,23 @@ class NeoToCFMigrationReport(BaseReport):
         
         # Unique systems with adapter details from bpmn_channel table
         # Excludes ProcessDirect (internal routing) and separates system name from URL
+        # Joins iflow table to get human-readable iflow names for drill-down
         systems_query = """
         SELECT DISTINCT
-            TRIM(LOWER(COALESCE(system, address))) as system_id,
-            COALESCE(system, 'Unknown') as system_name,
-            COALESCE(address, 'N/A') as address_url,
-            componentType as adapter_type,
-            REPLACE(REPLACE(type, 'Endpoint', ''), 'endpoint', '') as direction,
-            COUNT(DISTINCT iflowId) as iflow_count
-        FROM bpmn_channel
-        WHERE tenant_id = ?
-        AND (address IS NOT NULL OR system IS NOT NULL)
-        AND TRIM(COALESCE(address, system, '')) != ''
-        AND componentType != 'ProcessDirect'
-        GROUP BY TRIM(LOWER(COALESCE(system, address))), COALESCE(system, 'Unknown'), COALESCE(address, 'N/A'), componentType, direction
+            TRIM(LOWER(COALESCE(bc.system, bc.address))) as system_id,
+            COALESCE(bc.system, 'Unknown') as system_name,
+            COALESCE(bc.address, 'N/A') as address_url,
+            bc.componentType as adapter_type,
+            REPLACE(REPLACE(bc.type, 'Endpoint', ''), 'endpoint', '') as direction,
+            COUNT(DISTINCT bc.iflowId) as iflow_count,
+            GROUP_CONCAT(DISTINCT i.Name) as iflow_names
+        FROM bpmn_channel bc
+        LEFT JOIN iflow i ON bc.iflowId = i.Id AND bc.tenant_id = i.tenant_id
+        WHERE bc.tenant_id = ?
+        AND (bc.address IS NOT NULL OR bc.system IS NOT NULL)
+        AND TRIM(COALESCE(bc.address, bc.system, '')) != ''
+        AND bc.componentType != 'ProcessDirect'
+        GROUP BY TRIM(LOWER(COALESCE(bc.system, bc.address))), COALESCE(bc.system, 'Unknown'), COALESCE(bc.address, 'N/A'), bc.componentType, REPLACE(REPLACE(bc.type, 'Endpoint', ''), 'endpoint', '')
         ORDER BY iflow_count DESC, system_name
         """
         systems = self.execute_query(systems_query, (self.tenant_id,))

@@ -1017,13 +1017,25 @@ class NeoToCFFormatter:
                         <tbody>"""
         
         for sys in systems[:50]:  # Limit to top 50 for performance
+            iflow_count = sys.get('iflow_count', 0)
+            iflow_names = sys.get('iflow_names', '') or ''
+            system_name = sys.get('system_name', 'Unknown')
+            # Escape single/double quotes in iflow names for safe HTML attribute usage
+            iflow_names_escaped = iflow_names.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+            system_name_escaped = system_name.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+            
+            if iflow_count > 0 and iflow_names:
+                count_cell = f'<a href="#" class="badge bg-primary text-white iflow-usage-btn" data-iflows="{iflow_names_escaped}" data-system="{system_name_escaped}" style="text-decoration:none; cursor:pointer;">{iflow_count}</a>'
+            else:
+                count_cell = str(iflow_count)
+            
             html += f"""
                             <tr>
-                                <td>{sys.get('system_name', 'Unknown')}</td>
+                                <td>{system_name}</td>
                                 <td>{sys.get('address_url', 'N/A')}</td>
                                 <td>{sys.get('adapter_type', 'Unknown')}</td>
                                 <td>{sys.get('direction', 'Unknown')}</td>
-                                <td class="text-center">{sys.get('iflow_count', 0)}</td>
+                                <td class="text-center">{count_cell}</td>
                             </tr>"""
         
         html += """
@@ -1056,6 +1068,24 @@ class NeoToCFFormatter:
         html += """
                         </tbody>
                     </table>
+                </div>
+            </div>
+            
+            <!-- IFlow Usage Modal -->
+            <div class="modal fade" id="iflowUsageModal" tabindex="-1" aria-labelledby="iflowUsageModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header" style="background-color: #EDF5FA; border-bottom: 1px solid #E5E5E5;">
+                            <h5 class="modal-title" id="iflowUsageModalLabel" style="color: #0854A0;">
+                                \U0001f517 IFlows using: <span id="modalSystemName" style="font-weight:700;"></span>
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body" id="modalIFlowList"></div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
                 </div>
             </div>"""
         
@@ -1421,5 +1451,20 @@ class NeoToCFFormatter:
             $('#keystoreTable').DataTable($.extend({}, commonConfig, {
                 order: [[8, 'desc'], [5, 'asc']]
             }));
+            
+            // IFlow usage drill-down click handler
+            $(document).on('click', '.iflow-usage-btn', function(e) {
+                e.preventDefault();
+                var system = $(this).data('system');
+                var iflowsRaw = $(this).data('iflows');
+                var iflows = String(iflowsRaw).split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+                $('#modalSystemName').text(system);
+                var listHtml = '<ol class="mb-0">' + iflows.map(function(f) {
+                    return '<li style="padding: 4px 0; border-bottom: 1px solid #f0f0f0;">' + $('<div>').text(f).html() + '</li>';
+                }).join('') + '</ol>';
+                $('#modalIFlowList').html(listHtml);
+                var modal = new bootstrap.Modal(document.getElementById('iflowUsageModal'));
+                modal.show();
+            });
         });
     </script>"""
