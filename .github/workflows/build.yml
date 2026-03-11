@@ -63,26 +63,10 @@ jobs:
         run: |
           python - <<'EOF'
           from PIL import Image
-          import base64, struct, io, os
+          import io, os
 
-          # Read embedded PNG b64 from ui.py
-          with open("ui.py", "r", encoding="utf-8") as f:
-              src = f.read()
-
-          import re
-          m = re.search(r'_APP_ICON_B64\s*=\s*"""\\\n([\s\S]*?)\n"""', src)
-          if m:
-              png_b64 = m.group(1).strip()
-              png_bytes = base64.b64decode(png_b64)
-          else:
-              # Fallback: use Icon.png if present, else generate a placeholder
-              if os.path.exists("Icon.png"):
-                  with open("Icon.png", "rb") as f:
-                      png_bytes = f.read()
-              else:
-                  raise FileNotFoundError("Could not find icon data")
-
-          img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+          # Use icon.png directly from the repository
+          img = Image.open("icon.png").convert("RGBA")
 
           # Create iconset directory
           os.makedirs("app.iconset", exist_ok=True)
