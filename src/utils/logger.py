@@ -81,6 +81,14 @@ class LoggerSetup:
         file_handler.setFormatter(detailed_formatter)
         root_logger.addHandler(file_handler)
         
+        # Ensure stdout uses UTF-8 on Windows to handle Unicode characters (e.g. ✓)
+        # cp1252 (the default Windows console codec) cannot encode many Unicode symbols
+        if hasattr(sys.stdout, 'reconfigure'):
+            try:
+                sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+            except Exception:
+                pass
+
         # Console handler - logs INFO and above (or configured level if higher)
         console_handler = logging.StreamHandler(sys.stdout)
         console_level = max(numeric_level, logging.INFO)  # At least INFO for console
