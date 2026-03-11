@@ -40,6 +40,7 @@ jobs:
             --collect-all dotenv `
             --collect-all cryptography `
             --collect-all cron_descriptor `
+            --hidden-import sqlite3 `
             ui.py
 
       - name: Sign Windows EXE (self-signed)
@@ -145,6 +146,7 @@ jobs:
             --collect-all dotenv \
             --collect-all cryptography \
             --collect-all cron_descriptor \
+            --hidden-import sqlite3 \
             ui.py
 
       - name: Zip macOS app for distribution
