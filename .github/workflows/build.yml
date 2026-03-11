@@ -1,0 +1,165 @@
+name: Build Executables
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+jobs:
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Windows EXE
+        run: |
+          pyinstaller --onefile --windowed `
+            --name "CI-Analyzer" `
+            --icon icon.ico `
+            --add-data "src;src" `
+            ui.py
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CI-Analyzer-Windows
+          path: dist/CI-Analyzer.exe
+
+  build-macos:
+    name: Build macOS App
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller Pillow
+
+      - name: Create macOS .icns icon
+        run: |
+          python - <<'EOF'
+          from PIL import Image
+          import base64, struct, io, os
+
+          # Read embedded PNG b64 from ui.py
+          with open("ui.py", "r", encoding="utf-8") as f:
+              src = f.read()
+
+          import re
+          m = re.search(r'_APP_ICON_B64\s*=\s*"""\\\n([\s\S]*?)\n"""', src)
+          if m:
+              png_b64 = m.group(1).strip()
+              png_bytes = base64.b64decode(png_b64)
+          else:
+              # Fallback: use Icon.png if present, else generate a placeholder
+              if os.path.exists("Icon.png"):
+                  with open("Icon.png", "rb") as f:
+                      png_bytes = f.read()
+              else:
+                  raise FileNotFoundError("Could not find icon data")
+
+          img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+
+          # Create iconset directory
+          os.makedirs("app.iconset", exist_ok=True)
+          sizes = [16, 32, 64, 128, 256, 512]
+          for s in sizes:
+              resized = img.resize((s, s), Image.LANCZOS)
+              resized.save(f"app.iconset/icon_{s}x{s}.png")
+              if s <= 256:
+                  resized2 = img.resize((s * 2, s * 2), Image.LANCZOS)
+                  resized2.save(f"app.iconset/icon_{s}x{s}@2x.png")
+
+          print("iconset created successfully")
+          EOF
+          iconutil -c icns app.iconset -o app.icns
+          echo "app.icns created"
+
+      - name: Build macOS App
+        run: |
+          pyinstaller --onefile --windowed \
+            --name "CI-Analyzer" \
+            --icon app.icns \
+            --add-data "src:src" \
+            ui.py
+
+      - name: Zip macOS app for distribution
+        run: |
+          cd dist
+          zip -r CI-Analyzer-macOS.zip "CI-Analyzer"
+          echo "Zipped: $(ls -lh CI-Analyzer-macOS.zip)"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CI-Analyzer-macOS
+          path: dist/CI-Analyzer-macOS.zip
+
+  release:
+    name: Create GitHub Release
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: CI-Analyzer-Windows
+          path: artifacts/windows
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: CI-Analyzer-macOS
+          path: artifacts/macos
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "CI Analyzer ${{ github.ref_name }}"
+          body: |
+            ## CI Analyzer Tool ${{ github.ref_name }}
+
+            ### Downloads
+            | Platform | File | Notes |
+            |----------|------|-------|
+            | Windows | `CI-Analyzer.exe` | Double-click to run, no Python needed |
+            | macOS | `CI-Analyzer-macOS.zip` | Unzip and run the binary, no Python needed |
+
+            ### First Run
+            On first launch the app will create a `.env` file in the same folder where you save your configuration.
+
+            > **macOS note:** If Gatekeeper blocks the app, right-click → Open → Open anyway.
+          files: |
+            artifacts/windows/CI-Analyzer.exe
+            artifacts/macos/CI-Analyzer-macOS.zip
+          draft: false
+          prerelease: false
