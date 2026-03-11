@@ -37,11 +37,9 @@ jobs:
             --add-data "src;src" `
             --add-data "main.py;." `
             --collect-all requests `
-            --collect-all requests_oauthlib `
             --collect-all dotenv `
             --collect-all cryptography `
             --collect-all cron_descriptor `
-            --collect-all pandas `
             ui.py
 
       - name: Sign Windows EXE (self-signed)
@@ -144,11 +142,9 @@ jobs:
             --add-data "src:src" \
             --add-data "main.py:." \
             --collect-all requests \
-            --collect-all requests_oauthlib \
             --collect-all dotenv \
             --collect-all cryptography \
             --collect-all cron_descriptor \
-            --collect-all pandas \
             ui.py
 
       - name: Zip macOS app for distribution
