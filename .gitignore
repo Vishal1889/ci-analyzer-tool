@@ -77,5 +77,10 @@ testing-scripts/*
 temp/
 tmp/
 
+# Code signing artifacts (never commit these)
+*.pfx
+*.p12
+*.b64
+
 # Reference files
 reference files/*
