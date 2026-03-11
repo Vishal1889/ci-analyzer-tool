@@ -138,7 +138,7 @@ jobs:
 
       - name: Build macOS App
         run: |
-          pyinstaller --onedir --windowed \
+          pyinstaller --onedir \
             --name "CI-Analyzer" \
             --icon app.icns \
             --add-data "src:src" \
@@ -154,7 +154,7 @@ jobs:
       - name: Zip macOS app for distribution
         run: |
           cd dist
-          zip -r CI-Analyzer-macOS.zip "CI-Analyzer.app"
+          zip -r CI-Analyzer-macOS.zip "CI-Analyzer"
           echo "Zipped: $(ls -lh CI-Analyzer-macOS.zip)"
 
       - name: Upload macOS artifact
@@ -236,7 +236,7 @@ jobs:
             | Platform | File | Notes |
             |----------|------|-------|
             | Windows | `CI-Analyzer-Windows.zip` | Unzip folder, double-click `CI-Analyzer.exe` inside |
-            | macOS | `CI-Analyzer-macOS.zip` | Unzip to get `CI-Analyzer.app`, double-click to run |
+            | macOS | `CI-Analyzer-macOS.zip` | Unzip folder, double-click `CI-Analyzer` inside |
             | Windows Trust | `ci-analyzer-codesign.cer` | Public code-signing certificate |
 
             ### First Run
