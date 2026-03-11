@@ -31,7 +31,7 @@ jobs:
 
       - name: Build Windows EXE
         run: |
-          pyinstaller --onefile --windowed `
+          pyinstaller --onedir --windowed `
             --name "CI-Analyzer" `
             --icon icon.ico `
             --add-data "src;src" `
@@ -71,7 +71,7 @@ jobs:
 
           # Sign the EXE with a public timestamp server
           $result = Set-AuthenticodeSignature `
-            -FilePath "dist\CI-Analyzer.exe" `
+            -FilePath "dist\CI-Analyzer\CI-Analyzer.exe" `
             -Certificate $cert `
             -TimestampServer "http://timestamp.digicert.com" `
             -HashAlgorithm SHA256
@@ -81,11 +81,17 @@ jobs:
             Write-Warning "Signing returned status: $($result.Status) - $($result.StatusMessage)"
           }
 
+      - name: Zip Windows app for distribution
+        run: |
+          cd dist
+          Compress-Archive -Path "CI-Analyzer" -DestinationPath "CI-Analyzer-Windows.zip"
+          Write-Host "Zipped: $(Get-Item CI-Analyzer-Windows.zip | Select-Object -ExpandProperty Length) bytes"
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: CI-Analyzer-Windows
-          path: dist/CI-Analyzer.exe
+          path: dist/CI-Analyzer-Windows.zip
 
   build-macos:
     name: Build macOS App
@@ -132,7 +138,7 @@ jobs:
 
       - name: Build macOS App
         run: |
-          pyinstaller --onefile --windowed \
+          pyinstaller --onedir --windowed \
             --name "CI-Analyzer" \
             --icon app.icns \
             --add-data "src:src" \
@@ -148,7 +154,7 @@ jobs:
       - name: Zip macOS app for distribution
         run: |
           cd dist
-          zip -r CI-Analyzer-macOS.zip "CI-Analyzer"
+          zip -r CI-Analyzer-macOS.zip "CI-Analyzer.app"
           echo "Zipped: $(ls -lh CI-Analyzer-macOS.zip)"
 
       - name: Upload macOS artifact
@@ -229,8 +235,8 @@ jobs:
             ### Downloads
             | Platform | File | Notes |
             |----------|------|-------|
-            | Windows | `CI-Analyzer.exe` | Double-click to run, no Python needed |
-            | macOS | `CI-Analyzer-macOS.zip` | Unzip and run the binary, no Python needed |
+            | Windows | `CI-Analyzer-Windows.zip` | Unzip folder, double-click `CI-Analyzer.exe` inside |
+            | macOS | `CI-Analyzer-macOS.zip` | Unzip to get `CI-Analyzer.app`, double-click to run |
             | Windows Trust | `ci-analyzer-codesign.cer` | Public code-signing certificate |
 
             ### First Run
@@ -246,7 +252,7 @@ jobs:
             4. Browse → select **Trusted Root Certification Authorities** → Finish
             5. Repeat steps 2–4 and select **Trusted Publishers** instead
           files: |
-            artifacts/windows/CI-Analyzer.exe
+            artifacts/windows/CI-Analyzer-Windows.zip
             artifacts/macos/CI-Analyzer-macOS.zip
             ci-analyzer-codesign.cer
           draft: false
