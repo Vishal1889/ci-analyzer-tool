@@ -159,6 +159,17 @@ jobs:
             --hidden-import xml.etree.ElementInclude \
             ui.py
 
+      - name: Ad-hoc sign macOS binaries
+        run: |
+          # Remove any quarantine attributes added by the runner
+          xattr -cr dist/CI-Analyzer || true
+          # Sign all shared libraries and Python runtime individually first
+          find dist/CI-Analyzer -type f \( -name "*.dylib" -o -name "*.so" -o -name "Python" \) \
+            -exec codesign --force --sign - {} \; || true
+          # Deep-sign the main executable last (covers any missed nested binaries)
+          codesign --force --deep --sign - "dist/CI-Analyzer/CI-Analyzer"
+          echo "Ad-hoc signing complete"
+
       - name: Zip macOS app for distribution
         run: |
           cd dist
@@ -250,7 +261,7 @@ jobs:
             ### First Run
             On first launch the app will create a `.env` file in the same folder where you save your configuration.
 
-            > **macOS note:** If Gatekeeper blocks the app, right-click → Open → Open anyway.
+            > **macOS note:** The app is ad-hoc signed. On first launch macOS may show a security prompt — click **Open** to proceed. If the app is blocked, run `xattr -cr CI-Analyzer` in Terminal inside the unzipped folder.
 
             ### Windows SmartScreen / Trust
             The Windows EXE is signed with a self-signed certificate. To trust it on your machine:
