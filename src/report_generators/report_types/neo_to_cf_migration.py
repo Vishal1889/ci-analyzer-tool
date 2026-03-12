@@ -125,16 +125,22 @@ class NeoToCFMigrationReport(BaseReport):
         ) or 0
         
         # Get unique systems count from bpmn_channel table (table may not exist if BPMN parsing disabled)
-        # Excludes ProcessDirect (internal routing) — consistent with Systems & Adapters tab
+        # Counts distinct (system, address) PAIRS — identical logic to the Systems & Adapters tab.
+        # Excludes ProcessDirect (internal IFlow-to-IFlow routing, not an external system).
         systems_count = 0
         try:
             systems_query = """
-            SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(address, system)))) as unique_systems
-            FROM bpmn_channel
-            WHERE tenant_id = ?
-            AND (address IS NOT NULL OR system IS NOT NULL)
-            AND TRIM(COALESCE(address, system, '')) != ''
-            AND componentType != 'ProcessDirect'
+            SELECT COUNT(*) as unique_systems
+            FROM (
+                SELECT DISTINCT
+                    COALESCE(system, 'Unknown') as system_name,
+                    COALESCE(address, 'N/A') as address_url
+                FROM bpmn_channel
+                WHERE tenant_id = ?
+                AND (address IS NOT NULL OR system IS NOT NULL)
+                AND TRIM(COALESCE(address, system, '')) != ''
+                AND componentType != 'ProcessDirect'
+            )
             """
             systems_count = self.execute_scalar(systems_query, (self.tenant_id,)) or 0
         except Exception:
