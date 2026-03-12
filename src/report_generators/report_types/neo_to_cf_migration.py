@@ -34,6 +34,32 @@ class NeoToCFMigrationReport(BaseReport):
         cert_mappings = self._generate_certificate_mappings()
         keystore = self._generate_keystore_view()
         
+        # Load pre-computed MRS scores and enrich dashboard + packages
+        mci_data = self._generate_migration_scores()
+        if mci_data.get('available'):
+            # Inject MRS summary into dashboard KPIs
+            dashboard['kpis']['mci_summary'] = mci_data['summary']
+            dashboard['kpis']['mci_available'] = True
+            # Override the old readiness_score KPI with the rule-based MRS
+            dashboard['kpis']['readiness_score'] = mci_data['summary'].get('overall_mrs', 0)
+            # Enrich per-package data with MRS scores
+            mci_by_pkg = {p['package_id']: p for p in mci_data.get('packages', [])}
+            for pkg in packages.get('packages', []):
+                pkg_id = pkg.get('package_id')
+                mci_pkg = mci_by_pkg.get(pkg_id, {})
+                pkg['readiness_score'] = mci_pkg.get('readiness_score')
+                pkg['readiness_tag'] = mci_pkg.get('readiness_tag')
+                pkg['rule1a'] = mci_pkg.get('rule1a', 0)
+                pkg['rule1b'] = mci_pkg.get('rule1b', 0)
+                pkg['rule2'] = mci_pkg.get('rule2', 0)
+                pkg['rule3'] = mci_pkg.get('rule3', 0)
+                pkg['rule4'] = mci_pkg.get('rule4', 0)
+                pkg['rule5'] = mci_pkg.get('rule5', 0)
+                pkg['rule6'] = mci_pkg.get('rule6', 0)
+        else:
+            dashboard['kpis']['mci_summary'] = {}
+            dashboard['kpis']['mci_available'] = False
+        
         self.report_data = {
             'metadata': metadata,
             'dashboard': dashboard,
@@ -43,7 +69,8 @@ class NeoToCFMigrationReport(BaseReport):
             'systems': systems,
             'environment_variables': env_vars,
             'certificate_mappings': cert_mappings,
-            'keystore': keystore
+            'keystore': keystore,
+            'migration_scores': mci_data
         }
         
         logger.info(f"  Generated migration assessment with {len(self.report_data)} sections")
@@ -98,14 +125,22 @@ class NeoToCFMigrationReport(BaseReport):
         ) or 0
         
         # Get unique systems count from bpmn_channel table (table may not exist if BPMN parsing disabled)
+        # Counts distinct (system, address) PAIRS — identical logic to the Systems & Adapters tab.
+        # Excludes ProcessDirect (internal IFlow-to-IFlow routing, not an external system).
         systems_count = 0
         try:
             systems_query = """
-            SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(address, system)))) as unique_systems
-            FROM bpmn_channel
-            WHERE tenant_id = ?
-            AND (address IS NOT NULL OR system IS NOT NULL)
-            AND TRIM(COALESCE(address, system, '')) != ''
+            SELECT COUNT(*) as unique_systems
+            FROM (
+                SELECT DISTINCT
+                    COALESCE(system, 'Unknown') as system_name,
+                    COALESCE(address, 'N/A') as address_url
+                FROM bpmn_channel
+                WHERE tenant_id = ?
+                AND (address IS NOT NULL OR system IS NOT NULL)
+                AND TRIM(COALESCE(address, system, '')) != ''
+                AND componentType != 'ProcessDirect'
+            )
             """
             systems_count = self.execute_scalar(systems_query, (self.tenant_id,)) or 0
         except Exception:
@@ -506,9 +541,14 @@ class NeoToCFMigrationReport(BaseReport):
         """
         adapters = self.execute_query(adapter_query, (self.tenant_id,))
         
-        # Calculate statistics
+        # Unique systems = distinct (system_name, address_url) pairs
+        # (len(systems) would over-count because it groups by adapter type + direction too)
+        unique_system_pairs = len(set(
+            (s.get('system_name', ''), s.get('address_url', ''))
+            for s in systems
+        ))
         stats = {
-            'unique_systems': len(systems),
+            'unique_systems': unique_system_pairs,
             'total_adapters': sum(a['total_count'] for a in adapters),
             'adapter_types': len(adapters)
         }
@@ -829,6 +869,58 @@ class NeoToCFMigrationReport(BaseReport):
                 return part[3:]  # Remove 'CN=' prefix
         
         return dn  # Return full DN if CN not found
+    
+    def _generate_migration_scores(self) -> Dict[str, Any]:
+        """Read pre-computed MCI scores from package_migration_score table"""
+        try:
+            self.execute_scalar(
+                "SELECT COUNT(*) FROM package_migration_score WHERE tenant_id = ?",
+                (self.tenant_id,)
+            )
+        except Exception:
+            logger.info("  package_migration_score table not available — MCI scores not pre-computed yet")
+            return {'packages': [], 'summary': {}, 'available': False}
+        
+        scores_query = """
+        SELECT 
+            package_id, package_name, package_type,
+            rule1a_score as rule1a, rule1b_score as rule1b,
+            rule2_score as rule2, rule3_score as rule3,
+            rule4_score as rule4, rule5_score as rule5,
+            rule6_score as rule6,
+            total_score, readiness_score, readiness_tag, computed_at
+        FROM package_migration_score
+        WHERE tenant_id = ?
+        ORDER BY readiness_score DESC, package_name
+        """
+        packages = self.execute_query(scores_query, (self.tenant_id,))
+        
+        if not packages:
+            return {'packages': [], 'summary': {}, 'available': True}
+        
+        custom_pkgs = [p for p in packages if p.get('package_type') == 'Custom']
+        standard_pkgs = [p for p in packages if p.get('package_type') != 'Custom']
+        
+        overall_mrs = round(sum(p['readiness_score'] for p in packages) / len(packages))
+        custom_mrs = round(sum(p['readiness_score'] for p in custom_pkgs) / len(custom_pkgs)) if custom_pkgs else 0
+        standard_mrs = round(sum(p['readiness_score'] for p in standard_pkgs) / len(standard_pkgs)) if standard_pkgs else 0
+        
+        tag_counts = {'Ready': 0, 'Mostly Ready': 0, 'Needs Work': 0, 'Not Ready': 0}
+        for p in packages:
+            tag = p.get('readiness_tag', 'Not Ready')
+            if tag in tag_counts:
+                tag_counts[tag] += 1
+        
+        summary = {
+            'overall_mrs': overall_mrs,
+            'custom_mrs': custom_mrs,
+            'standard_mrs': standard_mrs,
+            'tag_counts': tag_counts,
+            'total_packages_scored': len(packages),
+        }
+        
+        logger.info(f"  Loaded MRS scores for {len(packages)} packages — Overall MRS: {overall_mrs}")
+        return {'packages': packages, 'summary': summary, 'available': True}
     
     def _calculate_readiness_score(self, pkg_data: Dict, iflow_count: int, 
                                    total_artifacts: int, systems_count: int) -> int:

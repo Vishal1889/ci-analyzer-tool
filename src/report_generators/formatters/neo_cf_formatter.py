@@ -697,10 +697,62 @@ class NeoToCFFormatter:
                             <div class="kpi-label">Connected Systems</div>
                         </div>
                     </div>
-                    <div class="col-md-3 col-sm-6">
-                        <div class="kpi-card">
-                            <div class="kpi-number" style="color: var(--sap-green);">{kpis.get('readiness_score', 0)}%</div>
-                            <div class="kpi-label">Migration Readiness</div>
+                </div>"""
+        
+        # MRS Section (only when pre-computed scores are available)
+        mci_summary = kpis.get('mci_summary', {})
+        if kpis.get('mci_available') and mci_summary:
+            overall_mrs  = mci_summary.get('overall_mrs', 0)
+            custom_mrs   = mci_summary.get('custom_mrs', 0)
+            standard_mrs = mci_summary.get('standard_mrs', 0)
+            tag_counts   = mci_summary.get('tag_counts', {})
+            
+            # Colour band for overall MRS (higher = better = greener)
+            if overall_mrs >= 76:
+                mrs_color, mrs_label = 'var(--sap-green)', '🟢 Ready'
+            elif overall_mrs >= 51:
+                mrs_color, mrs_label = '#F0AB00', '🟡 Mostly Ready'
+            elif overall_mrs >= 26:
+                mrs_color, mrs_label = '#E65100', '🟠 Needs Work'
+            else:
+                mrs_color, mrs_label = 'var(--sap-red)', '🔴 Not Ready'
+            
+            kpi_html += f"""
+                <div class="content-card">
+                    <h3>🎯 Migration Readiness Score (MRS)</h3>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <div class="kpi-card" style="border-left:4px solid {mrs_color};text-align:center;">
+                                <div style="font-size:48px;font-weight:700;color:{mrs_color};line-height:1.1;">{overall_mrs}</div>
+                                <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--sap-text-gray);margin-top:4px;">Overall Readiness Score <span style="font-weight:400;">(0–100)</span></div>
+                                <div style="font-size:13px;font-weight:600;color:{mrs_color};margin-top:6px;">{mrs_label}</div>
+                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:2px;">Higher score = more ready for migration</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="kpi-card" style="border-left:3px solid var(--sap-blue);">
+                                <div class="kpi-number" style="color:var(--sap-blue);">{custom_mrs}</div>
+                                <div class="kpi-label">Custom Packages Readiness</div>
+                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:4px;">Avg readiness of custom packages</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="kpi-card" style="border-left:3px solid #5E696E;">
+                                <div class="kpi-number" style="color:#5E696E;">{standard_mrs}</div>
+                                <div class="kpi-label">Standard Packages Readiness</div>
+                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:4px;">Avg readiness of standard packages</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col">
+                            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                                <span style="font-size:12px;color:var(--sap-text-gray);font-weight:600;">Readiness Distribution:</span>
+                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#E6F4EA;color:#2E844A;">🟢 Ready (76–100): {tag_counts.get('Ready', 0)} pkgs</span>
+                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#FFF3CD;color:#856404;">🟡 Mostly Ready (51–75): {tag_counts.get('Mostly Ready', 0)} pkgs</span>
+                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#FFE0B2;color:#E65100;">🟠 Needs Work (26–50): {tag_counts.get('Needs Work', 0)} pkgs</span>
+                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#F8D7DA;color:#721C24;">🔴 Not Ready (0–25): {tag_counts.get('Not Ready', 0)} pkgs</span>
+                            </div>
                         </div>
                     </div>
                 </div>"""
@@ -781,6 +833,11 @@ class NeoToCFFormatter:
         count_readonly   = sum(1 for p in packages if p.get('package_type') == 'Standard (Configure-Only)')
         count_custom     = sum(1 for p in packages if p.get('package_type') == 'Custom')
         
+        # MRS stats derived from per-package data
+        scored_pkgs   = [p for p in packages if p.get('readiness_score') is not None]
+        mrs_available = len(scored_pkgs) > 0
+        avg_mrs       = round(sum(p['readiness_score'] for p in scored_pkgs) / len(scored_pkgs)) if scored_pkgs else None
+        
         html = f"""            <div class="tab-pane fade" id="packages" role="tabpanel">
                 <div class="row g-3 mb-4">
                     <div class="col">
@@ -807,6 +864,7 @@ class NeoToCFFormatter:
                             <div class="kpi-label">Custom</div>
                         </div>
                     </div>
+                    {'<div class="col"><div class="kpi-card" style="border-left:3px solid var(--sap-green);"><div class="kpi-number" style="color:var(--sap-green);">' + str(avg_mrs) + '</div><div class="kpi-label">Avg Readiness Score</div></div></div>' if mrs_available and avg_mrs is not None else ''}
                 </div>
                 
                 <div class="content-card">
@@ -814,12 +872,13 @@ class NeoToCFFormatter:
                     <table class="table table-sm table-hover dataTable" id="packagesTable">
                         <thead>
                             <tr>
-                                <th style="width:40%">Package Name</th>
-                                <th style="width:18%">Package Type</th>
-                                <th style="width:9%" class="text-center">IFlows ({total_iflows})</th>
-                                <th style="width:9%" class="text-center">Scripts ({total_scripts})</th>
-                                <th style="width:9%" class="text-center">Msg Maps ({total_msg_maps})</th>
-                                <th style="width:9%" class="text-center">Val Maps ({total_val_maps})</th>
+                                <th style="width:33%">Package Name</th>
+                                <th style="width:14%">Package Type</th>
+                                <th style="width:11%" class="text-center">Readiness Score</th>
+                                <th style="width:8%" class="text-center">IFlows ({total_iflows})</th>
+                                <th style="width:8%" class="text-center">Scripts ({total_scripts})</th>
+                                <th style="width:8%" class="text-center">Msg Maps ({total_msg_maps})</th>
+                                <th style="width:8%" class="text-center">Val Maps ({total_val_maps})</th>
                                 <th style="width:6%" class="text-center">Total ({total_artifacts})</th>
                             </tr>
                         </thead>
@@ -830,18 +889,42 @@ class NeoToCFFormatter:
             'Standard (Editable)':       ('#F5F5F5', '#5E696E'),
             'Standard (Configure-Only)': ('#E6F4EA', '#2E844A'),
         }
+        _readiness_styles = {
+            'Ready':        ('#E6F4EA', '#2E844A', '🟢'),
+            'Mostly Ready': ('#FFF3CD', '#856404', '🟡'),
+            'Needs Work':   ('#FFE0B2', '#E65100', '🟠'),
+            'Not Ready':    ('#F8D7DA', '#721C24', '🔴'),
+        }
         for pkg in packages:
-            pkg_type = pkg['package_type']
+            pkg_type = pkg.get('package_type', 'Custom')
             pt_bg, pt_color = _pkg_styles.get(pkg_type, ('#F5F5F5', '#6A6D70'))
+            
+            # Readiness Score cell
+            tag   = pkg.get('readiness_tag')
+            score = pkg.get('readiness_score')
+            if tag and score is not None:
+                rs_bg, rs_color, rs_icon = _readiness_styles.get(tag, ('#F5F5F5', '#6A6D70', ''))
+                readiness_cell = (
+                    f'<span style="display:inline-block;padding:2px 7px;border-radius:3px;'
+                    f'font-size:11px;font-weight:600;background:{rs_bg};color:{rs_color};">'
+                    f'{rs_icon} {tag}</span>'
+                    f' <span style="font-size:11px;color:var(--sap-text-gray);">{int(score)}</span>'
+                )
+                sort_val = score
+            else:
+                readiness_cell = '<span style="color:var(--sap-text-gray);font-size:12px;">—</span>'
+                sort_val = -1
+            
             html += f"""
                             <tr>
-                                <td>{pkg['package_name']}</td>
+                                <td>{pkg.get('package_name', '')}</td>
                                 <td><span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:{pt_bg};color:{pt_color};">{pkg_type}</span></td>
-                                <td class="text-center">{pkg['iflow_count']}</td>
-                                <td class="text-center">{pkg['script_count']}</td>
-                                <td class="text-center">{pkg['msg_map_count']}</td>
-                                <td class="text-center">{pkg['val_map_count']}</td>
-                                <td class="text-center"><strong>{pkg['total_artifacts']}</strong></td>
+                                <td class="text-center" data-order="{sort_val}">{readiness_cell}</td>
+                                <td class="text-center">{pkg.get('iflow_count', 0)}</td>
+                                <td class="text-center">{pkg.get('script_count', 0)}</td>
+                                <td class="text-center">{pkg.get('msg_map_count', 0)}</td>
+                                <td class="text-center">{pkg.get('val_map_count', 0)}</td>
+                                <td class="text-center"><strong>{pkg.get('total_artifacts', 0)}</strong></td>
                             </tr>"""
         
         html += """
@@ -1489,8 +1572,9 @@ class NeoToCFFormatter:
             };
             
             $('#packagesTable').DataTable($.extend({}, commonConfig, {
-                order: [[0, 'asc']],
+                order: [[2, 'desc'], [0, 'asc']],
                 autoWidth: false,
+                columnDefs: [{ targets: [2], type: 'num' }],
                 buttons: makeBtn('Packages')
             }));
             
