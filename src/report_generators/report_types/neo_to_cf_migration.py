@@ -97,15 +97,19 @@ class NeoToCFMigrationReport(BaseReport):
             (self.tenant_id,)
         ) or 0
         
-        # Get unique systems count from bpmn_channel table
-        systems_query = """
-        SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(address, system)))) as unique_systems
-        FROM bpmn_channel
-        WHERE tenant_id = ?
-        AND (address IS NOT NULL OR system IS NOT NULL)
-        AND TRIM(COALESCE(address, system, '')) != ''
-        """
-        systems_count = self.execute_scalar(systems_query, (self.tenant_id,)) or 0
+        # Get unique systems count from bpmn_channel table (table may not exist if BPMN parsing disabled)
+        systems_count = 0
+        try:
+            systems_query = """
+            SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(address, system)))) as unique_systems
+            FROM bpmn_channel
+            WHERE tenant_id = ?
+            AND (address IS NOT NULL OR system IS NOT NULL)
+            AND TRIM(COALESCE(address, system, '')) != ''
+            """
+            systems_count = self.execute_scalar(systems_query, (self.tenant_id,)) or 0
+        except Exception:
+            logger.debug("  bpmn_channel table not available — systems count set to 0")
         
         # Calculate migration readiness score based on multiple factors
         total_artifacts = iflow_count + script_count + msg_map_count + val_map_count
@@ -452,26 +456,37 @@ class NeoToCFMigrationReport(BaseReport):
     
     def _generate_systems_adapters(self) -> Dict[str, Any]:
         """Generate systems and adapter analysis"""
-        
+
+        # Check bpmn_channel table exists first
+        try:
+            self.execute_scalar("SELECT COUNT(*) FROM bpmn_channel WHERE tenant_id = ?", (self.tenant_id,))
+        except Exception:
+            logger.info("  bpmn_channel table not available — skipping systems/adapters section")
+            return {
+                'systems': [],
+                'adapters': [],
+                'stats': {'unique_systems': 0, 'total_adapters': 0, 'adapter_types': 0}
+            }
+
         # Unique systems with adapter details from bpmn_channel table
         # Excludes ProcessDirect (internal routing) and separates system name from URL
         # Joins iflow table to get human-readable iflow names for drill-down
         systems_query = """
-        SELECT DISTINCT
-            TRIM(LOWER(COALESCE(bc.system, bc.address))) as system_id,
+        SELECT
             COALESCE(bc.system, 'Unknown') as system_name,
             COALESCE(bc.address, 'N/A') as address_url,
             bc.componentType as adapter_type,
             REPLACE(REPLACE(bc.type, 'Endpoint', ''), 'endpoint', '') as direction,
             COUNT(DISTINCT bc.iflowId) as iflow_count,
-            GROUP_CONCAT(DISTINCT i.Name) as iflow_names
+            GROUP_CONCAT(DISTINCT COALESCE(i.Name, bc.iflowId) || '|||' || COALESCE(p.Name, 'Unknown Package')) as iflow_names
         FROM bpmn_channel bc
         LEFT JOIN iflow i ON bc.iflowId = i.Id AND bc.tenant_id = i.tenant_id
+        LEFT JOIN package p ON i.PackageId = p.Id AND i.tenant_id = p.tenant_id
         WHERE bc.tenant_id = ?
         AND (bc.address IS NOT NULL OR bc.system IS NOT NULL)
         AND TRIM(COALESCE(bc.address, bc.system, '')) != ''
         AND bc.componentType != 'ProcessDirect'
-        GROUP BY TRIM(LOWER(COALESCE(bc.system, bc.address))), COALESCE(bc.system, 'Unknown'), COALESCE(bc.address, 'N/A'), bc.componentType, REPLACE(REPLACE(bc.type, 'Endpoint', ''), 'endpoint', '')
+        GROUP BY COALESCE(bc.system, 'Unknown'), COALESCE(bc.address, 'N/A'), bc.componentType, REPLACE(REPLACE(bc.type, 'Endpoint', ''), 'endpoint', '')
         ORDER BY iflow_count DESC, system_name
         """
         systems = self.execute_query(systems_query, (self.tenant_id,))
@@ -526,19 +541,22 @@ class NeoToCFMigrationReport(BaseReport):
                 'available': False
             }
         
-        # Get file-level details (one row per file)
+        # Get file-level details — JOIN package/iflow/script_collection for human-readable names
         variables_query = """
         SELECT 
-            fileName as file_name,
-            fileType as file_type,
-            envVariableCount as var_count,
-            envVariableList as variables,
-            parentName as parent_name,
-            parentType as parent_type,
-            packageId as package_name
-        FROM environment_variable_check
-        WHERE tenant_id = ?
-        ORDER BY parentName, fileName
+            evc.fileName as file_name,
+            evc.fileType as file_type,
+            evc.envVariableCount as var_count,
+            evc.envVariableList as variables,
+            COALESCE(i.Name, sc.Name, evc.parentName) as parent_name,
+            evc.parentType as parent_type,
+            COALESCE(p.Name, evc.packageId) as package_name
+        FROM environment_variable_check evc
+        LEFT JOIN package p ON evc.packageId = p.Id AND evc.tenant_id = p.tenant_id
+        LEFT JOIN iflow i ON evc.parentName = i.Id AND evc.tenant_id = i.tenant_id
+        LEFT JOIN script_collection sc ON evc.parentName = sc.Id AND evc.tenant_id = sc.tenant_id
+        WHERE evc.tenant_id = ?
+        ORDER BY COALESCE(i.Name, sc.Name, evc.parentName), evc.fileName
         """
         variables = self.execute_query(variables_query, (self.tenant_id,))
         

@@ -326,6 +326,7 @@ class NeoToCFFormatter:
         .status-inSync {{ background-color: #E6F4EA; color: var(--sap-green); }}
         .status-outofSync {{ background-color: #FFF4E5; color: var(--sap-orange); }}
         .status-notDeployed {{ background-color: #F5F5F5; color: var(--sap-text-gray); }}
+        .status-expired {{ background-color: #FCEAEA; color: var(--sap-red); }}
         
         /* DataTables Buttons */
         .dt-buttons {{
@@ -443,28 +444,34 @@ class NeoToCFFormatter:
         }}
         
         .dataTables_wrapper .dataTables_paginate {{
-            margin-top: 12px;
+            margin-top: 10px;
         }}
         
-        .dataTables_wrapper .dataTables_paginate .paginate_button {{
-            padding: 4px 10px;
-            margin: 0 2px;
-            border-radius: 3px;
-            border: 1px solid var(--sap-border);
-            background-color: white;
+        .dataTables_wrapper .dataTables_paginate .page-link {{
+            padding: 2px 8px;
+            font-size: 12px;
+            line-height: 1.5;
             color: var(--sap-text-dark);
+            background-color: white;
+            border-color: var(--sap-border);
         }}
         
-        .dataTables_wrapper .dataTables_paginate .paginate_button:hover {{
+        .dataTables_wrapper .dataTables_paginate .page-link:hover {{
             background-color: var(--sap-light-blue);
             border-color: var(--sap-blue);
             color: var(--sap-blue);
         }}
         
-        .dataTables_wrapper .dataTables_paginate .paginate_button.current {{
+        .dataTables_wrapper .dataTables_paginate .page-item.active .page-link {{
             background-color: var(--sap-blue);
             border-color: var(--sap-blue);
             color: white;
+        }}
+        
+        .dataTables_wrapper .dataTables_paginate .page-item.disabled .page-link {{
+            color: #b0b3b5;
+            background-color: white;
+            border-color: var(--sap-border);
         }}
         
         table.dataTable thead th {{
@@ -481,6 +488,18 @@ class NeoToCFFormatter:
         
         table.dataTable tbody tr:hover {{
             background-color: var(--sap-light-blue) !important;
+        }}
+        
+        tr.iflow-btn-row-active > td {{
+            background-color: #BDE0FA !important;
+            box-shadow: inset 0 2px 0 0 #0A6ED1, inset 0 -2px 0 0 #0A6ED1;
+        }}
+        
+        /* Connected Systems table – address column wraps long URLs */
+        #systemsTable td:nth-child(2) {{
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            max-width: 320px;
         }}
         
         table.dataTable tbody td {{
@@ -750,31 +769,42 @@ class NeoToCFFormatter:
         packages = packages_data.get('packages', [])
         stats = packages_data.get('stats', {})
         
-        # Calculate totals for column headers
+        # Calculate totals for column headers and KPI cards
         total_iflows = sum(pkg.get('iflow_count', 0) for pkg in packages)
         total_scripts = sum(pkg.get('script_count', 0) for pkg in packages)
         total_msg_maps = sum(pkg.get('msg_map_count', 0) for pkg in packages)
         total_val_maps = sum(pkg.get('val_map_count', 0) for pkg in packages)
         total_artifacts = stats.get('total_artifacts', 0)
         
+        # Package type counts
+        count_editable   = sum(1 for p in packages if p.get('package_type') == 'Standard (Editable)')
+        count_readonly   = sum(1 for p in packages if p.get('package_type') == 'Standard (Configure-Only)')
+        count_custom     = sum(1 for p in packages if p.get('package_type') == 'Custom')
+        
         html = f"""            <div class="tab-pane fade" id="packages" role="tabpanel">
                 <div class="row g-3 mb-4">
-                    <div class="col-md-4">
+                    <div class="col">
                         <div class="kpi-card">
                             <div class="kpi-number">{stats.get('total_packages', 0)}</div>
                             <div class="kpi-label">Total Packages</div>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="kpi-card">
-                            <div class="kpi-number">{stats.get('total_artifacts', 0)}</div>
-                            <div class="kpi-label">Total Artifacts</div>
+                    <div class="col">
+                        <div class="kpi-card" style="border-left:3px solid #5E696E;">
+                            <div class="kpi-number" style="color:#5E696E;">{count_editable}</div>
+                            <div class="kpi-label">Standard (Editable)</div>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="kpi-card">
-                            <div class="kpi-number">{stats.get('avg_artifacts_per_package', 0)}</div>
-                            <div class="kpi-label">Avg Artifacts/Package</div>
+                    <div class="col">
+                        <div class="kpi-card" style="border-left:3px solid var(--sap-green);">
+                            <div class="kpi-number" style="color:var(--sap-green);">{count_readonly}</div>
+                            <div class="kpi-label">Standard (Configure-Only)</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="kpi-card" style="border-left:3px solid var(--sap-blue);">
+                            <div class="kpi-number" style="color:var(--sap-blue);">{count_custom}</div>
+                            <div class="kpi-label">Custom</div>
                         </div>
                     </div>
                 </div>
@@ -784,23 +814,29 @@ class NeoToCFFormatter:
                     <table class="table table-sm table-hover dataTable" id="packagesTable">
                         <thead>
                             <tr>
-                                <th>Package Name</th>
-                                <th>Type</th>
-                                <th class="text-center">IFlows ({total_iflows})</th>
-                                <th class="text-center">Scripts ({total_scripts})</th>
-                                <th class="text-center">Msg Maps ({total_msg_maps})</th>
-                                <th class="text-center">Val Maps ({total_val_maps})</th>
-                                <th class="text-center">Total ({total_artifacts})</th>
+                                <th style="width:40%">Package Name</th>
+                                <th style="width:18%">Package Type</th>
+                                <th style="width:9%" class="text-center">IFlows ({total_iflows})</th>
+                                <th style="width:9%" class="text-center">Scripts ({total_scripts})</th>
+                                <th style="width:9%" class="text-center">Msg Maps ({total_msg_maps})</th>
+                                <th style="width:9%" class="text-center">Val Maps ({total_val_maps})</th>
+                                <th style="width:6%" class="text-center">Total ({total_artifacts})</th>
                             </tr>
                         </thead>
                         <tbody>"""
         
+        _pkg_styles = {
+            'Custom':                    ('#EDF5FA', '#0A6ED1'),
+            'Standard (Editable)':       ('#F5F5F5', '#5E696E'),
+            'Standard (Configure-Only)': ('#E6F4EA', '#2E844A'),
+        }
         for pkg in packages:
-            badge_class = 'bg-primary' if pkg['package_type'] == 'Custom' else ('bg-success' if 'Configure-Only' in pkg['package_type'] else 'bg-secondary')
+            pkg_type = pkg['package_type']
+            pt_bg, pt_color = _pkg_styles.get(pkg_type, ('#F5F5F5', '#6A6D70'))
             html += f"""
                             <tr>
                                 <td>{pkg['package_name']}</td>
-                                <td><span class="badge {badge_class}">{pkg['package_type']}</span></td>
+                                <td><span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:{pt_bg};color:{pt_color};">{pkg_type}</span></td>
                                 <td class="text-center">{pkg['iflow_count']}</td>
                                 <td class="text-center">{pkg['script_count']}</td>
                                 <td class="text-center">{pkg['msg_map_count']}</td>
@@ -904,7 +940,7 @@ class NeoToCFFormatter:
                     <div class="col-md-4">
                         <div class="kpi-card" style="border-left: 3px solid var(--sap-green);">
                             <div class="kpi-number" style="color: var(--sap-green);">{stats.get('synced', 0)}</div>
-                            <div class="kpi-label">Synced</div>
+                            <div class="kpi-label">In Sync</div>
                         </div>
                     </div>
                     <div class="col-md-4">
@@ -928,12 +964,12 @@ class NeoToCFFormatter:
                     <table class="table table-sm table-hover dataTable" id="deploymentsTable">
                         <thead>
                             <tr>
-                                <th>Artifact Name</th>
-                                <th>Type</th>
-                                <th>Package Name</th>
-                                <th class="text-center">Design Version</th>
-                                <th class="text-center">Runtime Version</th>
-                                <th class="text-center">Status</th>
+                                <th style="width:28%">Artifact Name</th>
+                                <th style="width:14%">Artifact Type</th>
+                                <th style="width:28%">Package Name</th>
+                                <th style="width:12%" class="text-center">Design Version</th>
+                                <th style="width:12%" class="text-center">Deployed Version</th>
+                                <th style="width:6%" class="text-center">Status</th>
                             </tr>
                         </thead>
                         <tbody>"""
@@ -941,6 +977,7 @@ class NeoToCFFormatter:
         for dep in deployments:
             status = dep.get('deployment_status', 'Unknown')
             status_class = 'status-inSync' if status == 'In Sync' else ('status-outofSync' if status == 'Out of Sync' else 'status-notDeployed')
+            sort_order = 1 if status == 'Out of Sync' else (2 if status == 'Not Deployed' else 3)
             
             html += f"""
                             <tr>
@@ -948,8 +985,8 @@ class NeoToCFFormatter:
                                 <td>{dep.get('artifact_type', 'Unknown')}</td>
                                 <td>{dep.get('package_name', 'Unknown')}</td>
                                 <td class="text-center">{dep.get('design_version', 'N/A')}</td>
-                                <td class="text-center">{dep.get('runtime_version') or 'N/A'}</td>
-                                <td class="text-center"><span class="status-badge {status_class}">{status}</span></td>
+                                <td class="text-center">{dep.get('runtime_version') or 'Not Deployed'}</td>
+                                <td class="text-center" data-order="{sort_order}"><span class="status-badge {status_class}">{status}</span></td>
                             </tr>"""
         
         html += """
@@ -1007,11 +1044,11 @@ class NeoToCFFormatter:
                     <table class="table table-sm table-hover dataTable" id="systemsTable">
                         <thead>
                             <tr>
-                                <th>System Name</th>
-                                <th>Address/URL</th>
-                                <th title="ProcessDirect adapters (used for internal IFlow routing) are excluded from this list">Adapter Type ℹ️</th>
-                                <th>Direction</th>
-                                <th class="text-center">Used in # IFlows</th>
+                                <th style="width:18%">System Name</th>
+                                <th style="width:38%">Address/URL</th>
+                                <th style="width:16%" title="ProcessDirect adapters (used for internal IFlow routing) are excluded from this list">Adapter Type ℹ️</th>
+                                <th style="width:13%">Direction</th>
+                                <th style="width:9%" class="text-center">Used in # IFlows</th>
                             </tr>
                         </thead>
                         <tbody>"""
@@ -1021,11 +1058,13 @@ class NeoToCFFormatter:
             iflow_names = sys.get('iflow_names', '') or ''
             system_name = sys.get('system_name', 'Unknown')
             # Escape single/double quotes in iflow names for safe HTML attribute usage
+            address_url = sys.get('address_url', 'N/A')
             iflow_names_escaped = iflow_names.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
             system_name_escaped = system_name.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+            address_url_escaped = address_url.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
             
             if iflow_count > 0 and iflow_names:
-                count_cell = f'<a href="#" class="badge bg-primary text-white iflow-usage-btn" data-iflows="{iflow_names_escaped}" data-system="{system_name_escaped}" style="text-decoration:none; cursor:pointer;">{iflow_count}</a>'
+                count_cell = f'<a href="#" class="badge bg-primary text-white iflow-usage-btn" data-iflows="{iflow_names_escaped}" data-system="{system_name_escaped}" data-address="{address_url_escaped}" style="text-decoration:none; cursor:pointer;">{iflow_count}</a>'
             else:
                 count_cell = str(iflow_count)
             
@@ -1073,7 +1112,7 @@ class NeoToCFFormatter:
             
             <!-- IFlow Usage Modal -->
             <div class="modal fade" id="iflowUsageModal" tabindex="-1" aria-labelledby="iflowUsageModalLabel" aria-hidden="true">
-                <div class="modal-dialog modal-dialog-scrollable">
+                <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
                     <div class="modal-content">
                         <div class="modal-header" style="background-color: #EDF5FA; border-bottom: 1px solid #E5E5E5;">
                             <h5 class="modal-title" id="iflowUsageModalLabel" style="color: #0854A0;">
@@ -1117,66 +1156,77 @@ class NeoToCFFormatter:
         
         html = f"""            <div class="tab-pane fade" id="envvars" role="tabpanel">
                 <div class="row g-3 mb-4">
-                    <div class="col-xl-2 col-md-4 col-sm-6">
+                    <div class="col">
                         <div class="kpi-card">
                             <div class="kpi-number">{unique_vars_count}</div>
                             <div class="kpi-label">Unique HC_ Variables</div>
                         </div>
                     </div>
-                    <div class="col-xl-2 col-md-4 col-sm-6">
+                    <div class="col">
                         <div class="kpi-card">
                             <div class="kpi-number">{stats.get('total_files', 0)}</div>
-                            <div class="kpi-label">Total Files</div>
+                            <div class="kpi-label">Total</div>
                         </div>
                     </div>
-                    <div class="col-xl-2 col-md-4 col-sm-6">
+                    <div class="col">
                         <div class="kpi-card">
                             <div class="kpi-number">{by_file_type.get('groovyScript', 0)}</div>
-                            <div class="kpi-label">Groovy Scripts</div>
+                            <div class="kpi-label">Groovy Script</div>
                         </div>
                     </div>
-                    <div class="col-xl-3 col-md-6 col-sm-6">
+                    <div class="col">
                         <div class="kpi-card">
                             <div class="kpi-number">{by_file_type.get('javascript', 0)}</div>
-                            <div class="kpi-label">JavaScript Files</div>
+                            <div class="kpi-label">JavaScript</div>
                         </div>
                     </div>
-                    <div class="col-xl-3 col-md-6 col-sm-6">
+                    <div class="col">
                         <div class="kpi-card">
                             <div class="kpi-number">{by_file_type.get('xslt', 0)}</div>
-                            <div class="kpi-label">XSLT Files</div>
+                            <div class="kpi-label">XSLT</div>
                         </div>
                     </div>
                 </div>
                 
                 <div class="content-card">
-                    <h3>🔧 Environment Variables Usage by File</h3>
+                    <h3>🔧 Environment Variables Usage</h3>
                     <table class="table table-sm table-hover dataTable" id="envVarsTable">
                         <thead>
                             <tr>
-                                <th>File Name</th>
-                                <th>Type</th>
-                                <th class="text-center"># Variables</th>
-                                <th>Variable Names</th>
-                                <th>Parent Name</th>
-                                <th>Parent Type</th>
-                                <th>Package</th>
+                                <th style="width:14%">File Name</th>
+                                <th style="width:9%">File Type</th>
+                                <th style="width:6%" class="text-center"># Variables</th>
+                                <th style="width:16%">Variable Names</th>
+                                <th style="width:9%">Artifact Type</th>
+                                <th style="width:25%">Artifact Name</th>
+                                <th style="width:21%">Package Name</th>
                             </tr>
                         </thead>
                         <tbody>"""
+        
+        # File type display mapping: db value → (label, bg colour, text colour)
+        _ft_styles = {
+            'groovyScript': ('GROOVY SCRIPT', '#E6F4EA', '#2E844A'),
+            'javascript':   ('JAVASCRIPT',    '#FFF4E5', '#8B4513'),
+            'xslt':         ('XSLT',          '#EDF5FA', '#0854A0'),
+        }
         
         for var in variables:
             # Format variable list (pipe-separated to comma-separated)
             var_list = var.get('variables', '').replace('|', ', ')
             
+            raw_ft  = var.get('file_type', '')
+            ft_label, ft_bg, ft_color = _ft_styles.get(raw_ft, (raw_ft.upper() if raw_ft else 'UNKNOWN', '#F5F5F5', '#6A6D70'))
+            ft_badge = f'<span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:{ft_bg};color:{ft_color};">{ft_label}</span>'
+            
             html += f"""
                             <tr>
                                 <td><code>{var.get('file_name', 'Unknown')}</code></td>
-                                <td>{var.get('file_type', 'Unknown')}</td>
+                                <td>{ft_badge}</td>
                                 <td class="text-center"><strong>{var.get('var_count', 0)}</strong></td>
                                 <td><code>{var_list}</code></td>
+                                <td>{var.get('parent_type', '')}</td>
                                 <td>{var.get('parent_name', 'Unknown')}</td>
-                                <td><span class="badge bg-secondary">{var.get('parent_type', '')}</span></td>
                                 <td>{var.get('package_name', 'Unknown')}</td>
                             </tr>"""
         
@@ -1247,7 +1297,14 @@ class NeoToCFFormatter:
         
         for mapping in mappings:
             status = mapping.get('status', 'Unknown')
-            status_class = 'status-inSync' if status == 'Active' else ('status-outofSync' if status == 'Expiring Soon' else 'status-notDeployed')
+            if status == 'Active':
+                status_class = 'status-inSync'
+            elif status == 'Expiring Soon':
+                status_class = 'status-outofSync'
+            elif status == 'Expired':
+                status_class = 'status-expired'
+            else:
+                status_class = 'status-notDeployed'
             
             # Extract CN from Subject and Issuer
             subject_cn = self._extract_cn_for_display(mapping.get('IssuedTo', ''))
@@ -1330,7 +1387,14 @@ class NeoToCFFormatter:
         
         for entry in entries:
             status = entry.get('status', 'Unknown')
-            status_class = 'status-inSync' if status == 'Active' else ('status-outofSync' if status == 'Expiring Soon' else 'status-notDeployed')
+            if status == 'Active':
+                status_class = 'status-inSync'
+            elif status == 'Expiring Soon':
+                status_class = 'status-outofSync'
+            elif status == 'Expired':
+                status_class = 'status-expired'
+            else:
+                status_class = 'status-notDeployed'
             
             subject_cn = entry.get('subject_cn', 'Unknown')
             issuer_cn = entry.get('issuer_cn', 'Unknown')
@@ -1383,7 +1447,10 @@ class NeoToCFFormatter:
     
     def _generate_javascript(self, data: Dict[str, Any]) -> str:
         """Generate JavaScript for DataTables with column filters and export buttons"""
-        return """    <!-- Bootstrap JS -->
+        # Sanitise tenant_id for safe embedding in a JS double-quoted string
+        tenant_safe = self.tenant_id.replace('\\', '\\\\').replace('"', '\\"')
+        
+        js = """    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <!-- jQuery -->
@@ -1400,71 +1467,113 @@ class NeoToCFFormatter:
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     
     <script>
+        var _tenantId = "__TENANT_ID__";
+        
         $(document).ready(function() {
-            // Common CSV export button configuration
-            var buttonConfig = [
-                {
+            // Returns a CSV button config with a per-table filename
+            function makeBtn(tableName) {
+                return [{
                     extend: 'csvHtml5',
-                    text: '📄 Export CSV',
-                    className: 'buttons-csv'
-                }
-            ];
+                    text: '\U0001F4C4 Export CSV',
+                    className: 'buttons-csv',
+                    filename: _tenantId + '_' + tableName
+                }];
+            }
             
-            // Common DataTable configuration
+            // Common DataTable configuration (buttons set per-table via makeBtn)
             var commonConfig = {
                 pageLength: 25,
                 lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
                 responsive: true,
-                dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i><"col-sm-6"p>>',
-                buttons: buttonConfig
+                dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>><"row"<"col-sm-6"l><"col-sm-6">>rt<"row"<"col-sm-6"i><"col-sm-6"p>>'
             };
             
-            // Initialize all tables with CSV export only (no column filters)
             $('#packagesTable').DataTable($.extend({}, commonConfig, {
-                order: [[0, 'asc']]
+                order: [[0, 'asc']],
+                autoWidth: false,
+                buttons: makeBtn('Packages')
             }));
             
             $('#versionCompTable').DataTable($.extend({}, commonConfig, {
-                order: [[3, 'desc'], [0, 'asc']]
+                order: [[3, 'desc'], [0, 'asc']],
+                buttons: makeBtn('Standard_Content')
             }));
             
             $('#deploymentsTable').DataTable($.extend({}, commonConfig, {
-                order: [[4, 'desc'], [0, 'asc']]
+                order: [[5, 'asc'], [0, 'asc']],
+                autoWidth: false,
+                buttons: makeBtn('Deployment_Status')
             }));
             
             $('#systemsTable').DataTable($.extend({}, commonConfig, {
-                order: [[3, 'desc']]
+                order: [[4, 'desc']],
+                autoWidth: false,
+                buttons: makeBtn('Connected_Systems')
             }));
             
             $('#adaptersTable').DataTable($.extend({}, commonConfig, {
-                order: [[3, 'desc']]
+                order: [[3, 'desc']],
+                buttons: makeBtn('Adapter_Types')
             }));
             
             $('#envVarsTable').DataTable($.extend({}, commonConfig, {
-                order: [[1, 'desc'], [0, 'asc']]
+                order: [[2, 'desc'], [0, 'asc']],
+                autoWidth: false,
+                buttons: makeBtn('Environment_Variables')
             }));
             
             $('#certMappingsTable').DataTable($.extend({}, commonConfig, {
-                order: [[5, 'desc'], [4, 'asc']]
+                order: [[5, 'desc'], [4, 'asc']],
+                buttons: makeBtn('Certificate_Mappings')
             }));
             
             $('#keystoreTable').DataTable($.extend({}, commonConfig, {
-                order: [[8, 'desc'], [5, 'asc']]
+                order: [[8, 'desc'], [5, 'asc']],
+                buttons: makeBtn('Keystore')
             }));
             
             // IFlow usage drill-down click handler
             $(document).on('click', '.iflow-usage-btn', function(e) {
                 e.preventDefault();
-                var system = $(this).data('system');
+                // Highlight the clicked row; clear any previous highlight
+                $('.iflow-btn-row-active').removeClass('iflow-btn-row-active');
+                $(this).closest('tr').addClass('iflow-btn-row-active');
+                var system  = $(this).data('system');
+                var address = $(this).data('address') || '';
                 var iflowsRaw = $(this).data('iflows');
-                var iflows = String(iflowsRaw).split(',').map(function(s) { return s.trim(); }).filter(Boolean);
-                $('#modalSystemName').text(system);
-                var listHtml = '<ol class="mb-0">' + iflows.map(function(f) {
-                    return '<li style="padding: 4px 0; border-bottom: 1px solid #f0f0f0;">' + $('<div>').text(f).html() + '</li>';
-                }).join('') + '</ol>';
-                $('#modalIFlowList').html(listHtml);
+                var entries = String(iflowsRaw).split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+                // Modal title: system name + address URL (middle-dot separator)
+                var titleText = system + (address && address !== 'N/A' ? ' \u00b7 ' + address : '');
+                $('#modalSystemName').text(titleText);
+                // Parse name|||package entries and render as a table
+                // Column order: # | Package Name | IFlow Name
+                var tableHtml = '<table class="table table-sm table-hover mb-0" style="table-layout:fixed;width:100%;">'
+                    + '<thead><tr>'
+                    + '<th style="width:32px">#</th>'
+                    + '<th style="width:46%">Package Name</th>'
+                    + '<th style="width:46%">IFlow Name</th>'
+                    + '</tr></thead><tbody>';
+                entries.forEach(function(entry, idx) {
+                    var sep = entry.indexOf('|||');
+                    var iflowName = sep >= 0 ? entry.substring(0, sep).trim() : entry.trim();
+                    var pkgName   = sep >= 0 ? entry.substring(sep + 3).trim() : '';
+                    tableHtml += '<tr>'
+                        + '<td class="text-muted">' + (idx + 1) + '</td>'
+                        + '<td style="word-break:break-word;overflow-wrap:anywhere;">' + $('<div>').text(pkgName).html() + '</td>'
+                        + '<td style="word-break:break-word;overflow-wrap:anywhere;">' + $('<div>').text(iflowName).html() + '</td>'
+                        + '</tr>';
+                });
+                tableHtml += '</tbody></table>';
+                $('#modalIFlowList').html(tableHtml);
                 var modal = new bootstrap.Modal(document.getElementById('iflowUsageModal'));
                 modal.show();
             });
+            
+            // Remove row highlight when the modal is dismissed
+            document.getElementById('iflowUsageModal').addEventListener('hidden.bs.modal', function() {
+                $('.iflow-btn-row-active').removeClass('iflow-btn-row-active');
+            });
         });
     </script>"""
+        
+        return js.replace('__TENANT_ID__', tenant_safe)
