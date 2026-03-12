@@ -40,7 +40,12 @@ jobs:
             --collect-all dotenv `
             --collect-all cryptography `
             --collect-all cron_descriptor `
+            --collect-all customtkinter `
             --hidden-import sqlite3 `
+            --hidden-import xml.etree `
+            --hidden-import xml.etree.ElementTree `
+            --hidden-import xml.etree.ElementPath `
+            --hidden-import xml.etree.ElementInclude `
             ui.py
 
       - name: Sign Windows EXE (self-signed)
@@ -146,7 +151,12 @@ jobs:
             --collect-all dotenv \
             --collect-all cryptography \
             --collect-all cron_descriptor \
+            --collect-all customtkinter \
             --hidden-import sqlite3 \
+            --hidden-import xml.etree \
+            --hidden-import xml.etree.ElementTree \
+            --hidden-import xml.etree.ElementPath \
+            --hidden-import xml.etree.ElementInclude \
             ui.py
 
       - name: Zip macOS app for distribution
