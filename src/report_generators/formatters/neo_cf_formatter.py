@@ -1053,7 +1053,7 @@ class NeoToCFFormatter:
                         </thead>
                         <tbody>"""
         
-        for sys in systems[:50]:  # Limit to top 50 for performance
+        for sys in systems:
             iflow_count = sys.get('iflow_count', 0)
             iflow_names = sys.get('iflow_names', '') or ''
             system_name = sys.get('system_name', 'Unknown')
