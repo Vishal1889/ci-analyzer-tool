@@ -1,9 +1,12 @@
 """
-Migration Complexity Index (MCI) Calculator
-Pre-computes per-package migration complexity scores based on 6 rules.
+Migration Readiness Score (MRS) Calculator
+Pre-computes per-package migration readiness scores based on 6 rules.
 Results are stored in the `package_migration_score` table for fast report generation.
 
 Scoring methodology: see MIGRATION_SCORING.md
+
+MRS = 100 - total_complexity_penalty
+Higher score = more ready for migration (0 = Not Ready, 100 = Fully Ready)
 """
 
 import sqlite3
@@ -18,16 +21,17 @@ logger = get_logger(__name__)
 # Configuration constants — adjust thresholds here without touching logic
 # ---------------------------------------------------------------------------
 
-RULE4_BASELINE = 10.0       # Weighted files count that yields max env-var score
-RULE5B_BASELINE = 50.0      # Weighted adapter instances that yield max adapter score
-RULE6_MULTIPLIER = 0.5      # Points added per certificate-to-user mapping
+RULE4_BASELINE = 10.0       # Weighted files count that yields max env-var penalty
+RULE5B_BASELINE = 50.0      # Weighted adapter instances that yield max adapter penalty
+RULE6_MULTIPLIER = 0.5      # Penalty points added per certificate-to-user mapping
 RULE3_STEP_BASELINE = 3.0   # Avg weighted steps/IFlow considered "moderately complex"
 
-COMPLEXITY_THRESHOLDS = {
-    'Low':      (0,  25),
-    'Medium':   (26, 50),
-    'High':     (51, 75),
-    'Critical': (76, 100),
+# Readiness thresholds (applied to MRS = 100 - penalty)
+READINESS_THRESHOLDS = {
+    'Ready':        (76, 100),
+    'Mostly Ready': (51, 75),
+    'Needs Work':   (26, 50),
+    'Not Ready':    (0,  25),
 }
 
 # adapter componentType → migration complexity weight
@@ -74,19 +78,21 @@ ENV_VAR_FILE_WEIGHTS: Dict[str, float] = {
 ENV_VAR_DEFAULT_WEIGHT = 1.0
 
 
-def _complexity_tag(score: float) -> str:
-    """Return the complexity tag string for a given MCI score."""
-    rounded = round(score)
-    for tag, (lo, hi) in COMPLEXITY_THRESHOLDS.items():
+def _readiness_tag(mrs: float) -> str:
+    """Return the readiness tag string for a given MRS score."""
+    rounded = round(mrs)
+    for tag, (lo, hi) in READINESS_THRESHOLDS.items():
         if lo <= rounded <= hi:
             return tag
-    return 'Critical'
+    return 'Not Ready'
 
 
 class MigrationScoreCalculator:
     """
-    Computes Migration Complexity Index (MCI) scores for every package in a
-    tenant and writes the results to the `package_migration_score` table.
+    Computes Migration Readiness Score (MRS) for every package in a tenant
+    and writes the results to the `package_migration_score` table.
+
+    MRS = 100 - complexity_penalty  (higher = more ready for migration)
 
     Call `compute_and_store()` once after all JSON data has been imported.
     The NEO-to-CF report generator then reads from that table instead of
@@ -103,12 +109,12 @@ class MigrationScoreCalculator:
 
     def compute_and_store(self) -> Dict[str, Any]:
         """
-        Compute MCI scores for all packages and persist to DB.
+        Compute MRS scores for all packages and persist to DB.
 
         Returns:
             dict with summary statistics about the computation run.
         """
-        logger.info("=== Migration Complexity Index (MCI) computation started ===")
+        logger.info("=== Migration Readiness Score (MRS) computation started ===")
 
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -127,15 +133,15 @@ class MigrationScoreCalculator:
 
             # Get all packages
             packages = self._fetch_packages(conn)
-            logger.info(f"  Computing MCI for {len(packages)} packages...")
+            logger.info(f"  Computing MRS for {len(packages)} packages...")
 
             rows = []
             for pkg in packages:
                 row = self._score_package(conn, pkg, tenant_ctx)
                 rows.append(row)
                 logger.debug(
-                    f"  [{row['complexity_tag']:8s}] {row['package_name'][:50]:50s} "
-                    f"MCI={row['total_score']:5.1f}"
+                    f"  [{row['readiness_tag']:12s}] {row['package_name'][:50]:50s} "
+                    f"MRS={row['readiness_score']:5.1f}"
                 )
 
             # Bulk insert
@@ -145,8 +151,8 @@ class MigrationScoreCalculator:
             # Summary
             summary = self._build_summary(rows)
             logger.info(
-                f"  MCI computation complete: {len(rows)} packages scored | "
-                f"Overall tenant MCI = {summary['overall_mci']:.1f} "
+                f"  MRS computation complete: {len(rows)} packages scored | "
+                f"Overall tenant MRS = {summary['overall_mrs']:.1f} "
                 f"({summary['overall_tag']})"
             )
             return summary
@@ -159,24 +165,25 @@ class MigrationScoreCalculator:
     # ------------------------------------------------------------------
 
     def _ensure_table(self, conn: sqlite3.Connection):
-        """Create package_migration_score table if it does not exist."""
+        """Drop and recreate package_migration_score table with current schema."""
+        conn.execute("DROP TABLE IF EXISTS package_migration_score")
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS package_migration_score (
-                tenant_id      TEXT,
-                package_id     TEXT,
-                package_name   TEXT,
-                package_type   TEXT,
-                rule1a_score   REAL,
-                rule1b_score   REAL,
-                rule2_score    REAL,
-                rule3_score    REAL,
-                rule4_score    REAL,
-                rule5_score    REAL,
-                rule6_score    REAL,
-                total_score    REAL,
-                complexity_tag TEXT,
-                has_timers     INTEGER,
-                computed_at    TEXT
+            CREATE TABLE package_migration_score (
+                tenant_id       TEXT,
+                package_id      TEXT,
+                package_name    TEXT,
+                package_type    TEXT,
+                rule1a_score    REAL,
+                rule1b_score    REAL,
+                rule2_score     REAL,
+                rule3_score     REAL,
+                rule4_score     REAL,
+                rule5_score     REAL,
+                rule6_score     REAL,
+                total_score     REAL,
+                readiness_score REAL,
+                readiness_tag   TEXT,
+                computed_at     TEXT
             )
         """)
         conn.commit()
@@ -209,7 +216,7 @@ class MigrationScoreCalculator:
 
     def _build_tenant_context(self, conn: sqlite3.Connection) -> Dict[str, Any]:
         """
-        Collect tenant-wide statistics that are needed by Rules 1, 5, and 6
+        Collect tenant-wide statistics needed by Rules 1, 5, and 6
         so we don't repeat these queries per package.
         """
         ctx: Dict[str, Any] = {}
@@ -309,7 +316,7 @@ class MigrationScoreCalculator:
         pkg: sqlite3.Row,
         ctx: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Compute the full MCI for a single package."""
+        """Compute the full MRS for a single package."""
 
         package_id   = pkg['package_id']
         package_name = pkg['package_name']
@@ -326,7 +333,7 @@ class MigrationScoreCalculator:
         r2 = self._rule2(conn, package_id)
 
         # ---- Rule 3 — Object complexity ----
-        r3, has_timers = self._rule3(conn, package_id)
+        r3 = self._rule3(conn, package_id)
 
         # ---- Rule 4 — Environment variable usage ----
         r4 = self._rule4(conn, package_id) if is_custom else 0.0
@@ -337,36 +344,37 @@ class MigrationScoreCalculator:
         # ---- Rule 6 — Cert-to-user mappings (tenant-wide flag, same for all pkgs) ----
         r6 = self._rule6(ctx)
 
-        # ---- Assemble total ----
+        # ---- Assemble total penalty ----
         if is_custom:
-            total = r1a + r1b + r2 + r3 + r4 + r5 + r6
+            total_penalty = r1a + r1b + r2 + r3 + r4 + r5 + r6
         else:
             # Standard packages: version currency + sync are primary drivers
-            # Other rules are less relevant (SAP owns the content)
-            # Normalize: rule1b (max 10) × 2.5 + rule2 (max 15) × 2.0 → max ~62.5
-            # Then scale to 100
             raw = (r1b * 2.5) + (r2 * 2.0)
-            total = min(100.0, raw)
+            total_penalty = min(100.0, raw)
 
-        total = min(100.0, max(0.0, total))
-        tag   = _complexity_tag(total)
+        total_penalty = min(100.0, max(0.0, total_penalty))
+
+        # ---- Invert to get Migration Readiness Score ----
+        readiness = round(100.0 - total_penalty, 2)
+        readiness = min(100.0, max(0.0, readiness))
+        tag = _readiness_tag(readiness)
 
         return {
-            'tenant_id':     self.tenant_id,
-            'package_id':    package_id,
-            'package_name':  package_name,
-            'package_type':  package_type,
-            'rule1a_score':  round(r1a, 2),
-            'rule1b_score':  round(r1b, 2),
-            'rule2_score':   round(r2,  2),
-            'rule3_score':   round(r3,  2),
-            'rule4_score':   round(r4,  2),
-            'rule5_score':   round(r5,  2),
-            'rule6_score':   round(r6,  2),
-            'total_score':   round(total, 2),
-            'complexity_tag': tag,
-            'has_timers':    1 if has_timers else 0,
-            'computed_at':   datetime.now().isoformat(),
+            'tenant_id':       self.tenant_id,
+            'package_id':      package_id,
+            'package_name':    package_name,
+            'package_type':    package_type,
+            'rule1a_score':    round(r1a, 2),
+            'rule1b_score':    round(r1b, 2),
+            'rule2_score':     round(r2,  2),
+            'rule3_score':     round(r3,  2),
+            'rule4_score':     round(r4,  2),
+            'rule5_score':     round(r5,  2),
+            'rule6_score':     round(r6,  2),
+            'total_score':     round(total_penalty, 2),
+            'readiness_score': readiness,
+            'readiness_tag':   tag,
+            'computed_at':     datetime.now().isoformat(),
         }
 
     # ------------------------------------------------------------------
@@ -374,7 +382,7 @@ class MigrationScoreCalculator:
     # ------------------------------------------------------------------
 
     def _rule1a(self, ctx: Dict[str, Any]) -> float:
-        """Rule 1a: Custom package ratio → max 10 pts."""
+        """Rule 1a: Custom package ratio → max 10 pts penalty."""
         total = ctx['total_packages']
         if total == 0:
             return 0.0
@@ -382,7 +390,7 @@ class MigrationScoreCalculator:
 
     def _rule1b(self, conn: sqlite3.Connection, package_id: str, ctx: Dict[str, Any]) -> float:
         """
-        Rule 1b: Standard version currency → max 10 pts.
+        Rule 1b: Standard version currency → max 10 pts penalty.
         Per-package: is THIS package outdated vs Discover?
         Tenant mid-point (5.0) when Discover data is unavailable.
         """
@@ -402,15 +410,14 @@ class MigrationScoreCalculator:
             if row['DiscoverVersion'] == 'Manual check needed':
                 return 5.0  # can't tell → neutral
             if row['CurrentVersion'] != row['DiscoverVersion']:
-                return 10.0  # outdated → full complexity points
-            return 0.0  # up-to-date → no complexity
+                return 10.0  # outdated → full penalty
+            return 0.0  # up-to-date → no penalty
         except Exception:
             return 5.0
 
     def _rule2(self, conn: sqlite3.Connection, package_id: str) -> float:
-        """Rule 2: Artifact sync consistency → max 15 pts."""
+        """Rule 2: Artifact sync consistency → max 15 pts penalty."""
         try:
-            # All 4 artifact types
             rows = conn.execute("""
                 SELECT deployment_status, COUNT(*) AS cnt
                 FROM (
@@ -482,16 +489,11 @@ class MigrationScoreCalculator:
             logger.debug(f"  Rule 2 error for {package_id}: {e}")
             return 0.0
 
-    def _rule3(self, conn: sqlite3.Connection, package_id: str) -> Tuple[float, bool]:
-        """
-        Rule 3: Object complexity → max 10 pts.
-        Returns (score, has_timers).
-        """
+    def _rule3(self, conn: sqlite3.Connection, package_id: str) -> float:
+        """Rule 3: Object complexity → max 10 pts penalty."""
         score = 0.0
-        has_timers = False
 
         try:
-            # Weighted step score per IFlow
             act_rows = conn.execute("""
                 SELECT iflowId,
                        activityType,
@@ -503,35 +505,23 @@ class MigrationScoreCalculator:
             """, (self.tenant_id, package_id)).fetchall()
 
             if act_rows:
-                # Aggregate weighted scores per IFlow
                 iflow_scores: Dict[str, float] = {}
                 for row in act_rows:
-                    iflow_id     = row['iflowId']
-                    sub_type     = row['subActivityType'] or row['activityType'] or ''
-                    weight       = ACTIVITY_WEIGHTS.get(sub_type, ACTIVITY_DEFAULT_WEIGHT)
-                    wt_score     = weight * row['step_count']
+                    iflow_id = row['iflowId']
+                    sub_type = row['subActivityType'] or row['activityType'] or ''
+                    weight   = ACTIVITY_WEIGHTS.get(sub_type, ACTIVITY_DEFAULT_WEIGHT)
+                    wt_score = weight * row['step_count']
                     iflow_scores[iflow_id] = iflow_scores.get(iflow_id, 0.0) + wt_score
 
                 avg_weighted = sum(iflow_scores.values()) / len(iflow_scores)
                 score = min(10.0, avg_weighted / RULE3_STEP_BASELINE)
         except Exception as e:
-            logger.debug(f"  Rule 3 (activities) error for {package_id}: {e}")
+            logger.debug(f"  Rule 3 error for {package_id}: {e}")
 
-        # Check for timer IFlows in this package
-        try:
-            timer_count = conn.execute("""
-                SELECT COUNT(*) AS cnt
-                FROM bpmn_timer
-                WHERE tenant_id = ? AND packageId = ?
-            """, (self.tenant_id, package_id)).fetchone()
-            has_timers = (timer_count['cnt'] > 0) if timer_count else False
-        except Exception:
-            pass
-
-        return round(score, 2), has_timers
+        return round(score, 2)
 
     def _rule4(self, conn: sqlite3.Connection, package_id: str) -> float:
-        """Rule 4: Environment variable (HC_) usage → max 25 pts."""
+        """Rule 4: Environment variable (HC_) usage → max 25 pts penalty."""
         try:
             rows = conn.execute("""
                 SELECT fileType, COUNT(*) AS file_count
@@ -561,16 +551,14 @@ class MigrationScoreCalculator:
         ctx: Dict[str, Any]
     ) -> float:
         """
-        Rule 5: Systems & adapter diversity → max 20 pts.
+        Rule 5: Systems & adapter diversity → max 20 pts penalty.
         Uses a package's proportional share of the tenant-wide score
         (based on what fraction of total IFlows this package contributes).
         """
-        # Tenant-level Rule 5 score
         tenant_r5 = self._rule5_tenant(ctx)
         if tenant_r5 == 0.0:
             return 0.0
 
-        # Proportional share by IFlow count
         try:
             pkg_iflows = conn.execute("""
                 SELECT COUNT(*) AS cnt FROM iflow
@@ -588,7 +576,7 @@ class MigrationScoreCalculator:
         return round(tenant_r5 * proportion, 2)
 
     def _rule5_tenant(self, ctx: Dict[str, Any]) -> float:
-        """Compute tenant-level Rule 5 score (5a + 5b), max 20 pts."""
+        """Compute tenant-level Rule 5 penalty (5a + 5b), max 20 pts."""
         # 5a: system count (max 10 pts, piecewise linear)
         n = ctx['unique_systems']
         if n <= 10:
@@ -611,7 +599,7 @@ class MigrationScoreCalculator:
         return s5a + s5b
 
     def _rule6(self, ctx: Dict[str, Any]) -> float:
-        """Rule 6: Certificate-to-user mappings → max 10 pts."""
+        """Rule 6: Certificate-to-user mappings → max 10 pts penalty."""
         return min(10.0, ctx['cert_mapping_count'] * RULE6_MULTIPLIER)
 
     # ------------------------------------------------------------------
@@ -625,12 +613,12 @@ class MigrationScoreCalculator:
             (tenant_id, package_id, package_name, package_type,
              rule1a_score, rule1b_score, rule2_score, rule3_score,
              rule4_score, rule5_score, rule6_score,
-             total_score, complexity_tag, has_timers, computed_at)
+             total_score, readiness_score, readiness_tag, computed_at)
             VALUES
             (:tenant_id, :package_id, :package_name, :package_type,
              :rule1a_score, :rule1b_score, :rule2_score, :rule3_score,
              :rule4_score, :rule5_score, :rule6_score,
-             :total_score, :complexity_tag, :has_timers, :computed_at)
+             :total_score, :readiness_score, :readiness_tag, :computed_at)
         """, rows)
 
     # ------------------------------------------------------------------
@@ -641,37 +629,37 @@ class MigrationScoreCalculator:
         """Build a summary dict for logging and the report header."""
         if not rows:
             return {
-                'overall_mci': 0.0,
-                'overall_tag': 'Low',
-                'custom_mci': 0.0,
-                'standard_mci': 0.0,
+                'overall_mrs':   0.0,
+                'overall_tag':   'Not Ready',
+                'custom_mrs':    0.0,
+                'standard_mrs':  0.0,
                 'total_packages': 0,
-                'tag_counts': {},
+                'tag_counts':    {},
             }
 
-        total_pkgs  = len(rows)
-        custom_rows  = [r for r in rows if r['package_type'] == 'Custom']
+        total_pkgs    = len(rows)
+        custom_rows   = [r for r in rows if r['package_type'] == 'Custom']
         standard_rows = [r for r in rows if r['package_type'] != 'Custom']
 
-        custom_mci   = (sum(r['total_score'] for r in custom_rows)   / len(custom_rows))   if custom_rows   else 0.0
-        standard_mci = (sum(r['total_score'] for r in standard_rows) / len(standard_rows)) if standard_rows else 0.0
+        custom_mrs   = (sum(r['readiness_score'] for r in custom_rows)   / len(custom_rows))   if custom_rows   else 0.0
+        standard_mrs = (sum(r['readiness_score'] for r in standard_rows) / len(standard_rows)) if standard_rows else 0.0
 
         # Weighted overall
-        overall_mci = (
-            (custom_mci   * len(custom_rows)   / total_pkgs) +
-            (standard_mci * len(standard_rows) / total_pkgs)
+        overall_mrs = (
+            (custom_mrs   * len(custom_rows)   / total_pkgs) +
+            (standard_mrs * len(standard_rows) / total_pkgs)
         )
 
         tag_counts: Dict[str, int] = {}
         for r in rows:
-            tag = r['complexity_tag']
+            tag = r['readiness_tag']
             tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
         return {
-            'overall_mci':    round(overall_mci, 1),
-            'overall_tag':    _complexity_tag(overall_mci),
-            'custom_mci':     round(custom_mci, 1),
-            'standard_mci':   round(standard_mci, 1),
+            'overall_mrs':    round(overall_mrs, 1),
+            'overall_tag':    _readiness_tag(overall_mrs),
+            'custom_mrs':     round(custom_mrs, 1),
+            'standard_mrs':   round(standard_mrs, 1),
             'total_packages': total_pkgs,
             'tag_counts':     tag_counts,
         }

@@ -705,67 +705,59 @@ class NeoToCFFormatter:
                     </div>
                 </div>"""
         
-        # MCI Section (only when pre-computed scores are available)
+        # MRS Section (only when pre-computed scores are available)
         mci_summary = kpis.get('mci_summary', {})
         if kpis.get('mci_available') and mci_summary:
-            overall_mci  = mci_summary.get('overall_mci', 0)
-            custom_mci   = mci_summary.get('custom_mci', 0)
-            standard_mci = mci_summary.get('standard_mci', 0)
+            overall_mrs  = mci_summary.get('overall_mrs', 0)
+            custom_mrs   = mci_summary.get('custom_mrs', 0)
+            standard_mrs = mci_summary.get('standard_mrs', 0)
             tag_counts   = mci_summary.get('tag_counts', {})
-            pkgs_with_timers = mci_summary.get('packages_with_timers', 0)
             
-            # Colour band for overall MCI
-            if overall_mci <= 25:
-                mci_color, mci_label = 'var(--sap-green)', 'Low Complexity'
-            elif overall_mci <= 50:
-                mci_color, mci_label = 'var(--sap-orange)', 'Medium Complexity'
-            elif overall_mci <= 75:
-                mci_color, mci_label = '#E65100', 'High Complexity'
+            # Colour band for overall MRS (higher = better = greener)
+            if overall_mrs >= 76:
+                mrs_color, mrs_label = 'var(--sap-green)', '🟢 Ready'
+            elif overall_mrs >= 51:
+                mrs_color, mrs_label = '#F0AB00', '🟡 Mostly Ready'
+            elif overall_mrs >= 26:
+                mrs_color, mrs_label = '#E65100', '🟠 Needs Work'
             else:
-                mci_color, mci_label = 'var(--sap-red)', 'Critical Complexity'
-            
-            timer_pill = (
-                f'<span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;'
-                f'background:#FFF4E5;color:#8B4513;">⏱️ Timer-based: {pkgs_with_timers} packages</span>'
-                if pkgs_with_timers > 0 else ''
-            )
+                mrs_color, mrs_label = 'var(--sap-red)', '🔴 Not Ready'
             
             kpi_html += f"""
                 <div class="content-card">
-                    <h3>🎯 Migration Complexity Index (MCI)</h3>
+                    <h3>🎯 Migration Readiness Score (MRS)</h3>
                     <div class="row g-3 mb-3">
                         <div class="col-md-4">
-                            <div class="kpi-card" style="border-left:4px solid {mci_color};text-align:center;">
-                                <div style="font-size:48px;font-weight:700;color:{mci_color};line-height:1.1;">{overall_mci}</div>
-                                <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--sap-text-gray);margin-top:4px;">Overall MCI Score <span style="font-weight:400;">(0–100)</span></div>
-                                <div style="font-size:13px;font-weight:600;color:{mci_color};margin-top:6px;">{mci_label}</div>
-                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:2px;">Higher score = more migration effort</div>
+                            <div class="kpi-card" style="border-left:4px solid {mrs_color};text-align:center;">
+                                <div style="font-size:48px;font-weight:700;color:{mrs_color};line-height:1.1;">{overall_mrs}</div>
+                                <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--sap-text-gray);margin-top:4px;">Overall Readiness Score <span style="font-weight:400;">(0–100)</span></div>
+                                <div style="font-size:13px;font-weight:600;color:{mrs_color};margin-top:6px;">{mrs_label}</div>
+                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:2px;">Higher score = more ready for migration</div>
                             </div>
                         </div>
                         <div class="col-md-4">
                             <div class="kpi-card" style="border-left:3px solid var(--sap-blue);">
-                                <div class="kpi-number" style="color:var(--sap-blue);">{custom_mci}</div>
-                                <div class="kpi-label">Custom Packages MCI</div>
-                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:4px;">Avg complexity of custom packages</div>
+                                <div class="kpi-number" style="color:var(--sap-blue);">{custom_mrs}</div>
+                                <div class="kpi-label">Custom Packages Readiness</div>
+                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:4px;">Avg readiness of custom packages</div>
                             </div>
                         </div>
                         <div class="col-md-4">
                             <div class="kpi-card" style="border-left:3px solid #5E696E;">
-                                <div class="kpi-number" style="color:#5E696E;">{standard_mci}</div>
-                                <div class="kpi-label">Standard Packages MCI</div>
-                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:4px;">Avg complexity of standard packages</div>
+                                <div class="kpi-number" style="color:#5E696E;">{standard_mrs}</div>
+                                <div class="kpi-label">Standard Packages Readiness</div>
+                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:4px;">Avg readiness of standard packages</div>
                             </div>
                         </div>
                     </div>
                     <div class="row g-3">
                         <div class="col">
                             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-                                <span style="font-size:12px;color:var(--sap-text-gray);font-weight:600;">Complexity Distribution:</span>
-                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#E6F4EA;color:#2E844A;">🟢 Low (0–25): {tag_counts.get('Low', 0)} pkgs</span>
-                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#FFF3CD;color:#856404;">🟡 Medium (26–50): {tag_counts.get('Medium', 0)} pkgs</span>
-                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#FFE0B2;color:#E65100;">🟠 High (51–75): {tag_counts.get('High', 0)} pkgs</span>
-                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#F8D7DA;color:#721C24;">🔴 Critical (76–100): {tag_counts.get('Critical', 0)} pkgs</span>
-                                {timer_pill}
+                                <span style="font-size:12px;color:var(--sap-text-gray);font-weight:600;">Readiness Distribution:</span>
+                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#E6F4EA;color:#2E844A;">🟢 Ready (76–100): {tag_counts.get('Ready', 0)} pkgs</span>
+                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#FFF3CD;color:#856404;">🟡 Mostly Ready (51–75): {tag_counts.get('Mostly Ready', 0)} pkgs</span>
+                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#FFE0B2;color:#E65100;">🟠 Needs Work (26–50): {tag_counts.get('Needs Work', 0)} pkgs</span>
+                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#F8D7DA;color:#721C24;">🔴 Not Ready (0–25): {tag_counts.get('Not Ready', 0)} pkgs</span>
                             </div>
                         </div>
                     </div>
@@ -847,11 +839,10 @@ class NeoToCFFormatter:
         count_readonly   = sum(1 for p in packages if p.get('package_type') == 'Standard (Configure-Only)')
         count_custom     = sum(1 for p in packages if p.get('package_type') == 'Custom')
         
-        # MCI stats derived from per-package data
-        scored_pkgs      = [p for p in packages if p.get('total_score') is not None]
-        mci_available    = len(scored_pkgs) > 0
-        avg_mci          = round(sum(p['total_score'] for p in scored_pkgs) / len(scored_pkgs)) if scored_pkgs else None
-        pkgs_with_timers = sum(1 for p in packages if p.get('has_timers'))
+        # MRS stats derived from per-package data
+        scored_pkgs   = [p for p in packages if p.get('readiness_score') is not None]
+        mrs_available = len(scored_pkgs) > 0
+        avg_mrs       = round(sum(p['readiness_score'] for p in scored_pkgs) / len(scored_pkgs)) if scored_pkgs else None
         
         html = f"""            <div class="tab-pane fade" id="packages" role="tabpanel">
                 <div class="row g-3 mb-4">
@@ -879,8 +870,7 @@ class NeoToCFFormatter:
                             <div class="kpi-label">Custom</div>
                         </div>
                     </div>
-                    {'<div class="col"><div class="kpi-card" style="border-left:3px solid #E65100;"><div class="kpi-number" style="color:#E65100;">' + str(avg_mci) + '</div><div class="kpi-label">Avg MCI Score</div></div></div>' if mci_available and avg_mci is not None else ''}
-                    {'<div class="col"><div class="kpi-card" style="border-left:3px solid var(--sap-orange);"><div class="kpi-number" style="color:var(--sap-orange);">⏱️ ' + str(pkgs_with_timers) + '</div><div class="kpi-label">Timer-based Pkgs</div></div></div>' if pkgs_with_timers > 0 else ''}
+                    {'<div class="col"><div class="kpi-card" style="border-left:3px solid var(--sap-green);"><div class="kpi-number" style="color:var(--sap-green);">' + str(avg_mrs) + '</div><div class="kpi-label">Avg Readiness Score</div></div></div>' if mrs_available and avg_mrs is not None else ''}
                 </div>
                 
                 <div class="content-card">
@@ -890,7 +880,7 @@ class NeoToCFFormatter:
                             <tr>
                                 <th style="width:33%">Package Name</th>
                                 <th style="width:14%">Package Type</th>
-                                <th style="width:11%" class="text-center">MCI Complexity</th>
+                                <th style="width:11%" class="text-center">Readiness Score</th>
                                 <th style="width:8%" class="text-center">IFlows ({total_iflows})</th>
                                 <th style="width:8%" class="text-center">Scripts ({total_scripts})</th>
                                 <th style="width:8%" class="text-center">Msg Maps ({total_msg_maps})</th>
@@ -905,41 +895,37 @@ class NeoToCFFormatter:
             'Standard (Editable)':       ('#F5F5F5', '#5E696E'),
             'Standard (Configure-Only)': ('#E6F4EA', '#2E844A'),
         }
-        _complexity_styles = {
-            'Low':      ('#E6F4EA', '#2E844A', '🟢'),
-            'Medium':   ('#FFF3CD', '#856404', '🟡'),
-            'High':     ('#FFE0B2', '#E65100', '🟠'),
-            'Critical': ('#F8D7DA', '#721C24', '🔴'),
+        _readiness_styles = {
+            'Ready':        ('#E6F4EA', '#2E844A', '🟢'),
+            'Mostly Ready': ('#FFF3CD', '#856404', '🟡'),
+            'Needs Work':   ('#FFE0B2', '#E65100', '🟠'),
+            'Not Ready':    ('#F8D7DA', '#721C24', '🔴'),
         }
         for pkg in packages:
             pkg_type = pkg.get('package_type', 'Custom')
             pt_bg, pt_color = _pkg_styles.get(pkg_type, ('#F5F5F5', '#6A6D70'))
             
-            # Timer indicator in Package Name cell
-            timer_badge = (' <span title="Contains timer-based IFlows — review scheduler config before migration"'
-                           ' style="font-size:11px;cursor:help;">⏱️</span>') if pkg.get('has_timers') else ''
-            
-            # MCI Complexity cell
-            tag   = pkg.get('complexity_tag')
-            score = pkg.get('total_score')
+            # Readiness Score cell
+            tag   = pkg.get('readiness_tag')
+            score = pkg.get('readiness_score')
             if tag and score is not None:
-                cx_bg, cx_color, cx_icon = _complexity_styles.get(tag, ('#F5F5F5', '#6A6D70', ''))
-                complexity_cell = (
+                rs_bg, rs_color, rs_icon = _readiness_styles.get(tag, ('#F5F5F5', '#6A6D70', ''))
+                readiness_cell = (
                     f'<span style="display:inline-block;padding:2px 7px;border-radius:3px;'
-                    f'font-size:11px;font-weight:600;background:{cx_bg};color:{cx_color};">'
-                    f'{cx_icon} {tag}</span>'
-                    f' <span style="font-size:11px;color:var(--sap-text-gray);">{score}</span>'
+                    f'font-size:11px;font-weight:600;background:{rs_bg};color:{rs_color};">'
+                    f'{rs_icon} {tag}</span>'
+                    f' <span style="font-size:11px;color:var(--sap-text-gray);">{int(score)}</span>'
                 )
                 sort_val = score
             else:
-                complexity_cell = '<span style="color:var(--sap-text-gray);font-size:12px;">—</span>'
+                readiness_cell = '<span style="color:var(--sap-text-gray);font-size:12px;">—</span>'
                 sort_val = -1
             
             html += f"""
                             <tr>
-                                <td>{pkg.get('package_name', '')}{timer_badge}</td>
+                                <td>{pkg.get('package_name', '')}</td>
                                 <td><span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:{pt_bg};color:{pt_color};">{pkg_type}</span></td>
-                                <td class="text-center" data-order="{sort_val}">{complexity_cell}</td>
+                                <td class="text-center" data-order="{sort_val}">{readiness_cell}</td>
                                 <td class="text-center">{pkg.get('iflow_count', 0)}</td>
                                 <td class="text-center">{pkg.get('script_count', 0)}</td>
                                 <td class="text-center">{pkg.get('msg_map_count', 0)}</td>

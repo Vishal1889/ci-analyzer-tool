@@ -34,20 +34,21 @@ class NeoToCFMigrationReport(BaseReport):
         cert_mappings = self._generate_certificate_mappings()
         keystore = self._generate_keystore_view()
         
-        # Load pre-computed MCI scores and enrich dashboard + packages
+        # Load pre-computed MRS scores and enrich dashboard + packages
         mci_data = self._generate_migration_scores()
         if mci_data.get('available'):
-            # Inject MCI summary into dashboard KPIs
+            # Inject MRS summary into dashboard KPIs
             dashboard['kpis']['mci_summary'] = mci_data['summary']
             dashboard['kpis']['mci_available'] = True
-            # Enrich per-package data with MCI scores
+            # Override the old readiness_score KPI with the rule-based MRS
+            dashboard['kpis']['readiness_score'] = mci_data['summary'].get('overall_mrs', 0)
+            # Enrich per-package data with MRS scores
             mci_by_pkg = {p['package_id']: p for p in mci_data.get('packages', [])}
             for pkg in packages.get('packages', []):
                 pkg_id = pkg.get('package_id')
                 mci_pkg = mci_by_pkg.get(pkg_id, {})
-                pkg['total_score'] = mci_pkg.get('total_score')
-                pkg['complexity_tag'] = mci_pkg.get('complexity_tag')
-                pkg['has_timers'] = mci_pkg.get('has_timers', 0)
+                pkg['readiness_score'] = mci_pkg.get('readiness_score')
+                pkg['readiness_tag'] = mci_pkg.get('readiness_tag')
                 pkg['rule1a'] = mci_pkg.get('rule1a', 0)
                 pkg['rule1b'] = mci_pkg.get('rule1b', 0)
                 pkg['rule2'] = mci_pkg.get('rule2', 0)
@@ -874,10 +875,10 @@ class NeoToCFMigrationReport(BaseReport):
             rule2_score as rule2, rule3_score as rule3,
             rule4_score as rule4, rule5_score as rule5,
             rule6_score as rule6,
-            total_score, complexity_tag, has_timers, computed_at
+            total_score, readiness_score, readiness_tag, computed_at
         FROM package_migration_score
         WHERE tenant_id = ?
-        ORDER BY total_score DESC, package_name
+        ORDER BY readiness_score DESC, package_name
         """
         packages = self.execute_query(scores_query, (self.tenant_id,))
         
@@ -887,26 +888,25 @@ class NeoToCFMigrationReport(BaseReport):
         custom_pkgs = [p for p in packages if p.get('package_type') == 'Custom']
         standard_pkgs = [p for p in packages if p.get('package_type') != 'Custom']
         
-        overall_mci = round(sum(p['total_score'] for p in packages) / len(packages))
-        custom_mci = round(sum(p['total_score'] for p in custom_pkgs) / len(custom_pkgs)) if custom_pkgs else 0
-        standard_mci = round(sum(p['total_score'] for p in standard_pkgs) / len(standard_pkgs)) if standard_pkgs else 0
+        overall_mrs = round(sum(p['readiness_score'] for p in packages) / len(packages))
+        custom_mrs = round(sum(p['readiness_score'] for p in custom_pkgs) / len(custom_pkgs)) if custom_pkgs else 0
+        standard_mrs = round(sum(p['readiness_score'] for p in standard_pkgs) / len(standard_pkgs)) if standard_pkgs else 0
         
-        tag_counts = {'Low': 0, 'Medium': 0, 'High': 0, 'Critical': 0}
+        tag_counts = {'Ready': 0, 'Mostly Ready': 0, 'Needs Work': 0, 'Not Ready': 0}
         for p in packages:
-            tag = p.get('complexity_tag', 'Low')
+            tag = p.get('readiness_tag', 'Not Ready')
             if tag in tag_counts:
                 tag_counts[tag] += 1
         
         summary = {
-            'overall_mci': overall_mci,
-            'custom_mci': custom_mci,
-            'standard_mci': standard_mci,
+            'overall_mrs': overall_mrs,
+            'custom_mrs': custom_mrs,
+            'standard_mrs': standard_mrs,
             'tag_counts': tag_counts,
             'total_packages_scored': len(packages),
-            'packages_with_timers': sum(1 for p in packages if p.get('has_timers'))
         }
         
-        logger.info(f"  Loaded MCI scores for {len(packages)} packages — Overall MCI: {overall_mci}")
+        logger.info(f"  Loaded MRS scores for {len(packages)} packages — Overall MRS: {overall_mrs}")
         return {'packages': packages, 'summary': summary, 'available': True}
     
     def _calculate_readiness_score(self, pkg_data: Dict, iflow_count: int, 
