@@ -34,6 +34,31 @@ class NeoToCFMigrationReport(BaseReport):
         cert_mappings = self._generate_certificate_mappings()
         keystore = self._generate_keystore_view()
         
+        # Load pre-computed MCI scores and enrich dashboard + packages
+        mci_data = self._generate_migration_scores()
+        if mci_data.get('available'):
+            # Inject MCI summary into dashboard KPIs
+            dashboard['kpis']['mci_summary'] = mci_data['summary']
+            dashboard['kpis']['mci_available'] = True
+            # Enrich per-package data with MCI scores
+            mci_by_pkg = {p['package_id']: p for p in mci_data.get('packages', [])}
+            for pkg in packages.get('packages', []):
+                pkg_id = pkg.get('package_id')
+                mci_pkg = mci_by_pkg.get(pkg_id, {})
+                pkg['total_score'] = mci_pkg.get('total_score')
+                pkg['complexity_tag'] = mci_pkg.get('complexity_tag')
+                pkg['has_timers'] = mci_pkg.get('has_timers', 0)
+                pkg['rule1a'] = mci_pkg.get('rule1a', 0)
+                pkg['rule1b'] = mci_pkg.get('rule1b', 0)
+                pkg['rule2'] = mci_pkg.get('rule2', 0)
+                pkg['rule3'] = mci_pkg.get('rule3', 0)
+                pkg['rule4'] = mci_pkg.get('rule4', 0)
+                pkg['rule5'] = mci_pkg.get('rule5', 0)
+                pkg['rule6'] = mci_pkg.get('rule6', 0)
+        else:
+            dashboard['kpis']['mci_summary'] = {}
+            dashboard['kpis']['mci_available'] = False
+        
         self.report_data = {
             'metadata': metadata,
             'dashboard': dashboard,
@@ -43,7 +68,8 @@ class NeoToCFMigrationReport(BaseReport):
             'systems': systems,
             'environment_variables': env_vars,
             'certificate_mappings': cert_mappings,
-            'keystore': keystore
+            'keystore': keystore,
+            'migration_scores': mci_data
         }
         
         logger.info(f"  Generated migration assessment with {len(self.report_data)} sections")
@@ -829,6 +855,56 @@ class NeoToCFMigrationReport(BaseReport):
                 return part[3:]  # Remove 'CN=' prefix
         
         return dn  # Return full DN if CN not found
+    
+    def _generate_migration_scores(self) -> Dict[str, Any]:
+        """Read pre-computed MCI scores from package_migration_score table"""
+        try:
+            self.execute_scalar(
+                "SELECT COUNT(*) FROM package_migration_score WHERE tenant_id = ?",
+                (self.tenant_id,)
+            )
+        except Exception:
+            logger.info("  package_migration_score table not available — MCI scores not pre-computed yet")
+            return {'packages': [], 'summary': {}, 'available': False}
+        
+        scores_query = """
+        SELECT 
+            package_id, package_name, package_type,
+            rule1a, rule1b, rule2, rule3, rule4, rule5, rule6,
+            total_score, complexity_tag, has_timers, computed_at
+        FROM package_migration_score
+        WHERE tenant_id = ?
+        ORDER BY total_score DESC, package_name
+        """
+        packages = self.execute_query(scores_query, (self.tenant_id,))
+        
+        if not packages:
+            return {'packages': [], 'summary': {}, 'available': True}
+        
+        custom_pkgs = [p for p in packages if p.get('package_type') == 'Custom']
+        standard_pkgs = [p for p in packages if p.get('package_type') != 'Custom']
+        
+        overall_mci = round(sum(p['total_score'] for p in packages) / len(packages))
+        custom_mci = round(sum(p['total_score'] for p in custom_pkgs) / len(custom_pkgs)) if custom_pkgs else 0
+        standard_mci = round(sum(p['total_score'] for p in standard_pkgs) / len(standard_pkgs)) if standard_pkgs else 0
+        
+        tag_counts = {'Low': 0, 'Medium': 0, 'High': 0, 'Critical': 0}
+        for p in packages:
+            tag = p.get('complexity_tag', 'Low')
+            if tag in tag_counts:
+                tag_counts[tag] += 1
+        
+        summary = {
+            'overall_mci': overall_mci,
+            'custom_mci': custom_mci,
+            'standard_mci': standard_mci,
+            'tag_counts': tag_counts,
+            'total_packages_scored': len(packages),
+            'packages_with_timers': sum(1 for p in packages if p.get('has_timers'))
+        }
+        
+        logger.info(f"  Loaded MCI scores for {len(packages)} packages — Overall MCI: {overall_mci}")
+        return {'packages': packages, 'summary': summary, 'available': True}
     
     def _calculate_readiness_score(self, pkg_data: Dict, iflow_count: int, 
                                    total_artifacts: int, systems_count: int) -> int:

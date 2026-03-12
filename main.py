@@ -176,6 +176,21 @@ def main():
             logger.info(f"Using database: {config.report_db_path}")
             logger.info("")
             
+            # Compute MCI scores on the existing database before generating reports
+            try:
+                from analysers.migration_score_calculator import MigrationScoreCalculator
+                
+                logger.info("Computing Migration Complexity Index (MCI)...")
+                calculator = MigrationScoreCalculator(
+                    db_path=str(config.report_db_path),
+                    tenant_id=config.tenant_id
+                )
+                mci_summary = calculator.compute_and_store()
+                logger.info(f"  MCI: {mci_summary['overall_mci']} ({mci_summary['overall_tag']})")
+                logger.info("")
+            except Exception as e:
+                logger.warning(f"MCI computation failed (non-critical): {e}")
+            
             # Generate reports from existing database
             try:
                 logger.info("Generating reports...")
@@ -1360,6 +1375,35 @@ def main():
             except Exception as e:
                 logger.error(f"Database import failed: {e}")
                 raise
+            
+            # PHASE 2.3: COMPUTE MIGRATION COMPLEXITY INDEX (MCI)
+            logger.info("")
+            logger.info("=" * 70)
+            logger.info("PHASE 2.3: COMPUTING MIGRATION COMPLEXITY INDEX (MCI)")
+            logger.info("=" * 70)
+            logger.info("")
+            
+            try:
+                from analysers.migration_score_calculator import MigrationScoreCalculator
+                
+                calculator = MigrationScoreCalculator(
+                    db_path=str(config.get_database_path(run_timestamp)),
+                    tenant_id=config.tenant_id
+                )
+                mci_summary = calculator.compute_and_store()
+                
+                logger.info(f"  Overall tenant MCI : {mci_summary['overall_mci']} ({mci_summary['overall_tag']})")
+                logger.info(f"  Custom packages MCI: {mci_summary['custom_mci']}")
+                logger.info(f"  Standard pkg MCI   : {mci_summary['standard_mci']}")
+                logger.info(f"  Package tags       : {mci_summary['tag_counts']}")
+                logger.info("")
+                logger.info("=" * 70)
+                logger.info("MCI computation completed!")
+                logger.info("=" * 70)
+                
+            except Exception as e:
+                logger.warning(f"MCI computation failed (non-critical): {e}")
+                logger.warning("Reports will be generated without pre-computed MCI scores")
             
             # PHASE 3: GENERATE REPORTS (only in FULL mode)
             logger.info("")
