@@ -322,16 +322,13 @@ class HTMLFormatter:
             usages = var.get('usages', [])
             usage_count = len(usages)
             
-            # Create usage details
+            # Create usage details (show all usages — DataTables handles pagination)
             usage_details = []
-            for usage in usages[:5]:  # Show first 5
+            for usage in usages:
                 usage_details.append(
                     f"<li><small>{self._escape_html(usage.get('file_path', ''))} "
                     f"({self._escape_html(usage.get('parent_type', ''))})</small></li>"
                 )
-            
-            if usage_count > 5:
-                usage_details.append(f"<li><small>... and {usage_count - 5} more</small></li>")
             
             usage_html = f"<ul class='mb-0'>{''.join(usage_details)}</ul>" if usage_details else "None"
             
