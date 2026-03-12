@@ -697,12 +697,6 @@ class NeoToCFFormatter:
                             <div class="kpi-label">Connected Systems</div>
                         </div>
                     </div>
-                    <div class="col-md-3 col-sm-6">
-                        <div class="kpi-card">
-                            <div class="kpi-number" style="color: var(--sap-green);">{kpis.get('readiness_score', 0)}%</div>
-                            <div class="kpi-label">Migration Readiness</div>
-                        </div>
-                    </div>
                 </div>"""
         
         # MRS Section (only when pre-computed scores are available)

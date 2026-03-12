@@ -125,6 +125,7 @@ class NeoToCFMigrationReport(BaseReport):
         ) or 0
         
         # Get unique systems count from bpmn_channel table (table may not exist if BPMN parsing disabled)
+        # Excludes ProcessDirect (internal routing) — consistent with Systems & Adapters tab
         systems_count = 0
         try:
             systems_query = """
@@ -133,6 +134,7 @@ class NeoToCFMigrationReport(BaseReport):
             WHERE tenant_id = ?
             AND (address IS NOT NULL OR system IS NOT NULL)
             AND TRIM(COALESCE(address, system, '')) != ''
+            AND componentType != 'ProcessDirect'
             """
             systems_count = self.execute_scalar(systems_query, (self.tenant_id,)) or 0
         except Exception:
@@ -533,9 +535,14 @@ class NeoToCFMigrationReport(BaseReport):
         """
         adapters = self.execute_query(adapter_query, (self.tenant_id,))
         
-        # Calculate statistics
+        # Unique systems = distinct (system_name, address_url) pairs
+        # (len(systems) would over-count because it groups by adapter type + direction too)
+        unique_system_pairs = len(set(
+            (s.get('system_name', ''), s.get('address_url', ''))
+            for s in systems
+        ))
         stats = {
-            'unique_systems': len(systems),
+            'unique_systems': unique_system_pairs,
             'total_adapters': sum(a['total_count'] for a in adapters),
             'adapter_types': len(adapters)
         }
