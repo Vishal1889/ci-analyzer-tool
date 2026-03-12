@@ -870,7 +870,10 @@ class NeoToCFMigrationReport(BaseReport):
         scores_query = """
         SELECT 
             package_id, package_name, package_type,
-            rule1a, rule1b, rule2, rule3, rule4, rule5, rule6,
+            rule1a_score as rule1a, rule1b_score as rule1b,
+            rule2_score as rule2, rule3_score as rule3,
+            rule4_score as rule4, rule5_score as rule5,
+            rule6_score as rule6,
             total_score, complexity_tag, has_timers, computed_at
         FROM package_migration_score
         WHERE tenant_id = ?
