@@ -140,9 +140,9 @@ jobs:
           iconutil -c icns app.iconset -o app.icns
           echo "app.icns created"
 
-      - name: Build macOS App
+      - name: Build macOS App (single executable)
         run: |
-          pyinstaller --onedir \
+          pyinstaller --onefile \
             --name "CI-Analyzer" \
             --icon app.icns \
             --add-data "src:src" \
@@ -159,25 +159,16 @@ jobs:
             --hidden-import xml.etree.ElementInclude \
             ui.py
 
-      - name: Ad-hoc sign macOS binaries
+      - name: Ad-hoc sign macOS executable
         run: |
-          # Remove any quarantine attributes added by the runner
           xattr -cr dist/CI-Analyzer || true
-          # Sign every Mach-O binary (dylib, .so, executables, Python runtime)
-          # --deep only works for .app bundles; for --onedir we must sign each file individually
-          find dist/CI-Analyzer -type f | while read f; do
-            if file "$f" | grep -qE 'Mach-O'; then
-              codesign --force --sign - "$f" || true
-            fi
-          done
-          echo "Ad-hoc signing complete"
-          # Verify the main executable is signed
-          codesign -v "dist/CI-Analyzer/CI-Analyzer" && echo "Main binary signature OK" || echo "WARNING: main binary not signed"
+          codesign --force --sign - dist/CI-Analyzer
+          codesign -v dist/CI-Analyzer && echo "Signature OK" || echo "WARNING: signature failed"
 
       - name: Zip macOS app for distribution
         run: |
           cd dist
-          zip -r CI-Analyzer-macOS.zip "CI-Analyzer"
+          zip CI-Analyzer-macOS.zip CI-Analyzer
           echo "Zipped: $(ls -lh CI-Analyzer-macOS.zip)"
 
       - name: Upload macOS artifact
