@@ -74,6 +74,7 @@ class NeoToCFFormatter:
 {self._generate_tab_certificate_mappings(data)}
 {self._generate_tab_keystore(data)}
 {self._generate_tab_download_errors(data)}
+{self._generate_tab_about(data)}
         </div>
         
         <!-- Footer -->
@@ -117,7 +118,7 @@ class NeoToCFFormatter:
         
         /* Header */
         .report-header {{
-            background-color: #2084cf;
+            background: linear-gradient(135deg, #0854A0, #2084cf);
             color: white;
             padding: 24px 32px;
             border-radius: 8px;
@@ -146,6 +147,12 @@ class NeoToCFFormatter:
             border: 1px solid var(--sap-border);
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
             height: 100%;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }}
+
+        .kpi-card:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }}
         
         .kpi-number {{
@@ -168,6 +175,11 @@ class NeoToCFFormatter:
         .nav-tabs {{
             border-bottom: 1px solid var(--sap-border);
             margin-bottom: 24px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background-color: var(--sap-background);
+            padding-top: 8px;
         }}
         
         .nav-tabs .nav-link {{
@@ -368,6 +380,8 @@ class NeoToCFFormatter:
             background-color: var(--sap-blue) !important;
             border-color: var(--sap-blue) !important;
             color: white !important;
+            font-size: 11px !important;
+            padding: 4px 10px !important;
         }}
         
         .dt-button.buttons-csv:hover {{
@@ -554,11 +568,62 @@ class NeoToCFFormatter:
             font-size: 12px;
         }}
         
+        /* Table row hover */
+        .table tbody tr:hover {{
+            background-color: #EDF5FA !important;
+        }}
+
+        /* Back to top button */
+        .back-to-top {{
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--sap-blue);
+            color: white;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s, transform 0.2s;
+            z-index: 999;
+        }}
+        .back-to-top.visible {{
+            opacity: 1;
+            visibility: visible;
+        }}
+        .back-to-top:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }}
+
+        /* Collapsible content cards */
+        .content-card h3 {{
+            cursor: pointer;
+            user-select: none;
+        }}
+        .content-card h3::after {{
+            content: ' ▾';
+            font-size: 12px;
+            color: var(--sap-text-gray);
+        }}
+        .content-card.collapsed h3::after {{
+            content: ' ▸';
+        }}
+        .content-card.collapsed .card-body {{
+            display: none;
+        }}
+
         /* Responsive */
         @media (max-width: 768px) {{
             .kpi-number {{ font-size: 24px; }}
             .report-header h1 {{ font-size: 20px; }}
         }}
+
 """
     
     def _generate_header(self, data: Dict[str, Any]) -> str:
@@ -634,10 +699,17 @@ class NeoToCFFormatter:
                     ⚠️ Download Errors
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="about-tab" data-bs-toggle="tab"
+                        data-bs-target="#about" type="button" role="tab">
+                    ℹ️ About
+                </button>
+            </li>
         </ul>"""
     
     def _generate_stacked_bar(self, data_items: list, title: str) -> str:
-        """Generate a horizontal stacked bar chart"""
+        """Generate a horizontal stacked bar chart (sorted by count descending)"""
+        data_items = sorted(data_items, key=lambda x: x.get('count', 0), reverse=True)
         total = sum(item['count'] for item in data_items if item['count'] > 0)
         if total == 0:
             return f"""
@@ -687,86 +759,120 @@ class NeoToCFFormatter:
         """Generate executive summary tab"""
         dashboard = data.get('dashboard', {})
         kpis = dashboard.get('kpis', {})
-        
-        # KPI Cards
+        metadata = data.get('metadata', {})
+        subaccount_type = metadata.get('subaccount_type', 'CF')
+
+        # KPI Cards (clickable — navigate to respective tabs)
         kpi_html = f"""            <div class="tab-pane fade show active" id="dashboard" role="tabpanel">
                 <div class="row g-3 mb-4">
-                    <div class="col-md-3 col-sm-6">
-                        <div class="kpi-card">
-                            <div class="kpi-number">{kpis.get('total_packages', 0)}</div>
+                    <div class="col">
+                        <div class="kpi-card" style="border-left:3px solid var(--sap-blue);cursor:pointer;" onclick="document.querySelector('#packages-tab').click()">
+                            <div class="kpi-number" style="color:var(--sap-blue);">{kpis.get('total_packages', 0)}</div>
                             <div class="kpi-label">Total Packages</div>
                         </div>
                     </div>
-                    <div class="col-md-3 col-sm-6">
-                        <div class="kpi-card">
-                            <div class="kpi-number">{kpis.get('total_artifacts', 0)}</div>
+                    <div class="col">
+                        <div class="kpi-card" style="border-left:3px solid var(--sap-green);cursor:pointer;" onclick="document.querySelector('#deployment-tab').click()">
+                            <div class="kpi-number" style="color:var(--sap-green);">{kpis.get('total_artifacts', 0)}</div>
                             <div class="kpi-label">Total Artifacts</div>
                         </div>
                     </div>
-                    <div class="col-md-3 col-sm-6">
-                        <div class="kpi-card">
-                            <div class="kpi-number">{kpis.get('unique_systems', 0)}</div>
+                    <div class="col">
+                        <div class="kpi-card" style="border-left:3px solid var(--sap-orange);cursor:pointer;" onclick="document.querySelector('#systems-tab').click()">
+                            <div class="kpi-number" style="color:var(--sap-orange);">{kpis.get('unique_systems', 0)}</div>
                             <div class="kpi-label">Connected Systems</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="kpi-card" style="border-left:3px solid #E65100;cursor:pointer;" onclick="document.querySelector('#envvars-tab').click()">
+                            <div class="kpi-number" style="color:#E65100;">{kpis.get('env_var_artifacts', 0)}</div>
+                            <div class="kpi-label">Artifacts Using System Variables</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="kpi-card" style="border-left:3px solid #5E696E;cursor:pointer;" onclick="document.querySelector('#certmappings-tab').click()">
+                            <div class="kpi-number" style="color:#5E696E;">{kpis.get('cert_mappings', 0)}</div>
+                            <div class="kpi-label">Certificate-User Mappings</div>
                         </div>
                     </div>
                 </div>"""
 
-        # Alerts
-        alerts = dashboard.get('alerts', [])
-        if alerts:
-            kpi_html += """
-                <div class="content-card">
-                    <h3>🚨 Critical Alerts</h3>"""
-            for alert in alerts:
-                alert_class = 'alert-warning' if alert['type'] == 'warning' else 'alert-info'
-                kpi_html += f"""
-                    <div class="alert-box {alert_class}">{alert['message']}</div>"""
-            kpi_html += """
+        # Migration Readiness Donut Charts (side by side)
+        packages_list = data.get('packages', {}).get('packages', [])
+        pkg_green = sum(1 for p in packages_list if p.get('migration_readiness') == 'Green')
+        pkg_amber = sum(1 for p in packages_list if p.get('migration_readiness') == 'Amber')
+        pkg_red = sum(1 for p in packages_list if p.get('migration_readiness') == 'Red')
+
+        art_readiness = dashboard.get('artifact_readiness', {})
+        art_green = art_readiness.get('green', 0)
+        art_amber = art_readiness.get('amber', 0)
+        art_red = art_readiness.get('red', 0)
+
+        kpi_html += f"""
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="content-card text-center">
+                            <h4 style="font-size:14px;color:#32363A;margin-bottom:8px;">📦 Package Migration Readiness</h4>
+                            <canvas id="pkgDonut" style="max-height:240px;"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="content-card text-center">
+                            <h4 style="font-size:14px;color:#32363A;margin-bottom:8px;">📊 Artifact Migration Readiness</h4>
+                            <canvas id="artDonut" style="max-height:240px;"></canvas>
+                        </div>
+                    </div>
                 </div>"""
-        
-        # Package Distribution Bar Chart + Top Packages
+
+        # Store chart data for JS initialization
+        self._donut_data = {
+            'pkg': {'green': pkg_green, 'amber': pkg_amber, 'red': pkg_red},
+            'art': {'green': art_green, 'amber': art_amber, 'red': art_red},
+        }
+
+        # Package Distribution Bar Chart
         package_dist = dashboard.get('package_distribution', [])
         top_packages = dashboard.get('top_packages', [])
-        
-        # Generate stacked bar for package distribution
         pkg_bar = self._generate_stacked_bar(package_dist, "📦 Package Distribution")
-        
+
         kpi_html += f"""
-                {pkg_bar}
-                
-                <div class="content-card">
-                    <h3>📊 Top 5 Packages by Complexity</h3>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Package</th>
-                                    <th class="text-center">IFlows</th>
-                                    <th class="text-center">Scripts</th>
-                                    <th class="text-center">Mappings</th>
-                                    <th class="text-center">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>"""
-        
-        for pkg in top_packages[:5]:
-            mappings = pkg.get('msg_map_count', 0) + pkg.get('val_map_count', 0)
-            kpi_html += f"""
-                                <tr>
-                                    <td>{pkg.get('package_name', 'Unknown')}</td>
-                                    <td class="text-center">{pkg.get('iflow_count', 0)}</td>
-                                    <td class="text-center">{pkg.get('script_count', 0)}</td>
-                                    <td class="text-center">{mappings}</td>
-                                    <td class="text-center"><strong>{pkg.get('total_artifacts', 0)}</strong></td>
-                                </tr>"""
-        
+                {pkg_bar}"""
+
+        # Points to Note
+        points = dashboard.get('points_to_note', [])
         kpi_html += """
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                <div class="content-card">
+                    <h3>📋 Points to Note</h3>"""
+
+        for point in points:
+            count = point.get('count', 0)
+            if count == 0:
+                continue
+            label = point.get('label', '')
+            status = point.get('status', 'ok')
+            if status == 'warning':
+                icon = '⚠️'
+                bg = '#FFF4E5'
+                border_color = '#F0AB00'
+                count_color = '#E65100'
+            else:
+                icon = '✅'
+                bg = '#E6F4EA'
+                border_color = '#2E844A'
+                count_color = '#2E844A'
+            kpi_html += f"""
+                    <div style="display:flex;align-items:center;padding:10px 14px;margin-bottom:6px;border-radius:4px;background:{bg};border-left:4px solid {border_color};">
+                        <span style="font-size:16px;margin-right:10px;">{icon}</span>
+                        <span style="font-size:13px;color:#32363A;flex:1;">{label}</span>
+                        <span style="font-size:16px;font-weight:700;color:{count_color};min-width:40px;text-align:right;">{count}</span>
+                    </div>"""
+
+        kpi_html += """
+                </div>"""
+
+        kpi_html += """
             </div>"""
-        
+
         return kpi_html
     
     def _generate_tab_package_analysis(self, data: Dict[str, Any]) -> str:
@@ -1585,12 +1691,12 @@ class NeoToCFFormatter:
                     <table class="table table-sm table-hover dataTable" id="downloadErrorsTable">
                         <thead>
                             <tr>
-                                <th style="width:22%">Package / Artifact</th>
-                                <th style="width:14%">Type</th>
-                                <th style="width:8%" class="text-center">Error Code</th>
-                                <th style="width:14%">Error Type</th>
-                                <th style="width:32%">Error Message</th>
-                                <th style="width:10%">Timestamp</th>
+                                <th style="width:20%">Package / Artifact</th>
+                                <th style="width:12%">Type</th>
+                                <th style="width:7%" class="text-center">Error Code</th>
+                                <th style="width:13%">Error Type</th>
+                                <th style="width:36%">Error Message</th>
+                                <th style="width:12%">Timestamp</th>
                             </tr>
                         </thead>
                         <tbody>"""
@@ -1614,8 +1720,8 @@ class NeoToCFFormatter:
                                 <td>{err.get('artifact_type', '').replace('_', ' ').title()}</td>
                                 <td class="text-center"><span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:{ec_bg};color:{ec_color};">{code}</span></td>
                                 <td>{err.get('error_type', '').replace('_', ' ').title()}</td>
-                                <td style="font-size:12px;">{err.get('error_message', '')}</td>
-                                <td style="font-size:11px;color:#5E696E;">{ts}</td>
+                                <td>{err.get('error_message', '')}</td>
+                                <td style="color:#5E696E;">{ts}</td>
                             </tr>"""
 
         html += """
@@ -1626,15 +1732,215 @@ class NeoToCFFormatter:
 
         return html
 
+    def _generate_tab_about(self, data: Dict[str, Any]) -> str:
+        """Generate About tab with report documentation"""
+        return """            <div class="tab-pane fade" id="about" role="tabpanel">
+                <div class="content-card">
+                    <h3>ℹ️ About This Report</h3>
+                    <p style="color:#5E696E;font-size:13px;">
+                        This report provides a comprehensive analysis of your SAP Cloud Integration tenant to assess migration readiness
+                        from NEO to Cloud Foundry (CF). Each tab focuses on a specific aspect of the tenant's integration landscape.
+                    </p>
+                </div>
+
+                <div class="content-card">
+                    <h3>📑 Report Tabs</h3>
+                    <table class="table table-sm" style="font-size:13px;">
+                        <thead>
+                            <tr>
+                                <th style="width:25%">Tab</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>🎯 Executive Summary</strong></td>
+                                <td>High-level overview of your tenant: total packages, artifacts, connected systems, and key points to note such as version mismatches, draft artifacts, undeployed artifacts, and expired certificates.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>📋 Standard Content Analysis</strong></td>
+                                <td>Compares the design-time version of SAP/Partner standard packages against the latest version available on SAP Discover. Highlights packages that are outdated and may need updating before migration.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>📦 Package Analysis</strong></td>
+                                <td>Per-package migration readiness assessment. Shows each package's type (Custom, Standard Editable, Standard Configure-Only), artifact counts, and a migration readiness indicator based on version currency and artifact health.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>📊 Artifact Analysis</strong></td>
+                                <td>Per-artifact migration readiness for all Integration Flows, Script Collections, Message Mappings, and Value Mappings. Checks each artifact for draft status and System (HC_) environment variable usage.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>🌐 Systems & Adapters</strong></td>
+                                <td>Lists all external systems connected to your integration flows, the adapter types used (HTTP, SOAP, SFTP, etc.), and which IFlows use each system. Helps identify connectivity that needs reconfiguration in CF.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>🔧 Environment Variables</strong></td>
+                                <td>Detects System (HC_) environment variable usage across Groovy scripts, JavaScript, and XSLT files. HC_ variables are NEO-specific and must be mapped to CF equivalents during migration.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>🔐 Certificate-User Mappings</strong></td>
+                                <td>Shows certificate-to-user authentication mappings. This feature is only available for NEO subaccounts.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>🔑 Keystore</strong></td>
+                                <td>Lists all keystore entries (certificates and keys) with their validity status, expiry dates, key types, and signature algorithms. Highlights expired or soon-to-expire certificates.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>⚠️ Download Errors</strong></td>
+                                <td>Lists any errors encountered during data extraction from the tenant APIs. If errors occurred, some data may be incomplete. Common causes include proprietary content restrictions (HTTP 403) or connectivity issues.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="content-card">
+                    <h3>🚦 Migration Readiness Indicators</h3>
+                    <p style="color:#5E696E;font-size:13px;margin-bottom:12px;">
+                        The readiness indicators (🟢 🟡 🔴) appear on the <strong>Artifact Analysis</strong> and <strong>Package Analysis</strong> tabs.
+                        Click any indicator to see the detailed checks that determined its status.
+                    </p>
+
+                    <h4 style="font-size:14px;margin-top:16px;">Artifact Analysis — Per-Artifact Checks</h4>
+                    <p style="color:#5E696E;font-size:12px;margin-bottom:8px;">Each artifact is evaluated against two checks: <strong>Version Status</strong> (draft vs saved version) and <strong>System (HC_) Variable Usage</strong> (for IFlows and Script Collections only).</p>
+                    <table class="table table-sm" style="font-size:13px;">
+                        <thead>
+                            <tr>
+                                <th style="width:15%">Artifact Type</th>
+                                <th style="width:15%">Checks Performed</th>
+                                <th style="width:23%">🟢 Ready</th>
+                                <th style="width:23%">🟡 Needs Check</th>
+                                <th style="width:23%">🔴 Action Needed</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Integration Flow</strong></td>
+                                <td>
+                                    <small>1. Version Status<br>2. System (HC_) Variables in Groovy scripts, JavaScript, and XSLT files</small>
+                                </td>
+                                <td>
+                                    <small>✓ Has a saved version (not in draft)<br>✓ No Groovy/JS/XSLT files reference HC_ environment variables</small>
+                                </td>
+                                <td>
+                                    <small>⚠ Artifact is in draft status (Version = "Active") — needs to be saved as a versioned copy before migration<br>✓ No HC_ variable issues found</small>
+                                </td>
+                                <td>
+                                    <small>✗ One or more Groovy scripts, JavaScript, or XSLT files within this IFlow reference System (HC_) environment variables — these are NEO-specific and must be mapped to CF equivalents</small>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Script Collection</strong></td>
+                                <td>
+                                    <small>1. Version Status<br>2. System (HC_) Variables in Groovy scripts and JavaScript files</small>
+                                </td>
+                                <td>
+                                    <small>✓ Has a saved version (not in draft)<br>✓ No scripts reference HC_ environment variables</small>
+                                </td>
+                                <td>
+                                    <small>⚠ Artifact is in draft status — needs to be saved as a versioned copy before migration<br>✓ No HC_ variable issues found</small>
+                                </td>
+                                <td>
+                                    <small>✗ One or more scripts reference System (HC_) environment variables — these must be resolved before migration</small>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Message Mapping</strong></td>
+                                <td>
+                                    <small>1. Version Status only<br><em>(HC_ variable check not applicable)</em></small>
+                                </td>
+                                <td>
+                                    <small>✓ Has a saved version (not in draft) — ready to migrate as-is</small>
+                                </td>
+                                <td>
+                                    <small>⚠ Artifact is in draft status — needs to be saved as a versioned copy before migration</small>
+                                </td>
+                                <td>
+                                    <small><em>Not applicable — Message Mappings do not use HC_ variables</em></small>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Value Mapping</strong></td>
+                                <td>
+                                    <small>1. Version Status only<br><em>(HC_ variable check not applicable)</em></small>
+                                </td>
+                                <td>
+                                    <small>✓ Has a saved version (not in draft) — ready to migrate as-is</small>
+                                </td>
+                                <td>
+                                    <small>⚠ Artifact is in draft status — needs to be saved as a versioned copy before migration</small>
+                                </td>
+                                <td>
+                                    <small><em>Not applicable — Value Mappings do not use HC_ variables</em></small>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h4 style="font-size:14px;margin-top:16px;">Package Analysis — Per-Package Checks</h4>
+                    <p style="color:#5E696E;font-size:12px;margin-bottom:8px;">Each package is evaluated based on its type. Standard packages are checked against SAP Discover for version currency. Custom packages are checked for artifact-level readiness.</p>
+                    <table class="table table-sm" style="font-size:13px;">
+                        <thead>
+                            <tr>
+                                <th style="width:15%">Package Type</th>
+                                <th style="width:15%">Checks Performed</th>
+                                <th style="width:23%">🟢 Ready</th>
+                                <th style="width:23%">🟡 Needs Check</th>
+                                <th style="width:23%">🔴 Action Needed</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Standard<br>(Editable &amp; Configure-Only)</strong></td>
+                                <td>
+                                    <small>1. Discover Version — compares the package's design version against the latest version on SAP Discover<br>2. Artifact Readiness — aggregates the readiness status of all artifacts within the package</small>
+                                </td>
+                                <td>
+                                    <small>✓ Package version matches the latest on SAP Discover (up-to-date)<br>✓ All artifacts within the package are 🟢 Ready</small>
+                                </td>
+                                <td>
+                                    <small>⚠ Either the package version is outdated on Discover, <strong>or</strong> some artifacts need attention — but not both issues simultaneously</small>
+                                </td>
+                                <td>
+                                    <small>✗ Package version is outdated on SAP Discover <strong>and</strong> one or more artifacts have issues (draft status or HC_ variables)</small>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Custom</strong></td>
+                                <td>
+                                    <small>1. System (HC_) Variables — checks if any artifacts use NEO-specific HC_ environment variables<br>2. Draft Artifacts — checks if any artifacts are in unsaved draft status</small>
+                                </td>
+                                <td>
+                                    <small>✓ No artifacts use System (HC_) variables<br>✓ No artifacts are in draft status</small>
+                                </td>
+                                <td>
+                                    <small>⚠ One or more artifacts are in draft status — but no HC_ variable issues found</small>
+                                </td>
+                                <td>
+                                    <small>✗ One or more artifacts use System (HC_) environment variables — these must be mapped to CF equivalents before migration</small>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>"""
+
     def _generate_footer(self, data: Dict[str, Any]) -> str:
-        """Generate report footer"""
+        """Generate report footer with breadcrumb info"""
         metadata = data.get('metadata', {})
         generated_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        return f"""        <div class="report-footer">
-            <p>SAP Cloud Integration Analyzer Tool</p>
-            <p>Generated on {generated_time}</p>
-        </div>"""
+        subaccount_type = metadata.get('subaccount_type', 'CF')
+        subaccount_label = 'Cloud Foundry' if subaccount_type == 'CF' else 'NEO'
+
+        return f"""        <div class="report-footer" style="border-top:1px solid var(--sap-border);padding-top:16px;">
+            <p style="margin:0;">
+                <strong>Cloud Integration Analyzer Tool</strong> &nbsp;·&nbsp;
+                Tenant: {self.tenant_id} &nbsp;·&nbsp;
+                Subaccount: {subaccount_label} &nbsp;·&nbsp;
+                Generated: {generated_time}
+            </p>
+        </div>
+
+        <button class="back-to-top" id="backToTop" onclick="window.scrollTo({{top:0,behavior:'smooth'}})">↑</button>"""
     
     def _generate_javascript(self, data: Dict[str, Any]) -> str:
         """Generate JavaScript for DataTables with column filters and export buttons"""
@@ -1643,6 +1949,9 @@ class NeoToCFFormatter:
         
         js = """    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     
     <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
@@ -1662,6 +1971,24 @@ class NeoToCFFormatter:
         var _extractionDate = "__EXTRACTION_DATE__";
 
         $(document).ready(function() {
+            // Animated counters for KPI numbers
+            document.querySelectorAll('.kpi-number').forEach(function(el) {
+                var text = el.textContent.trim();
+                var target = parseInt(text, 10);
+                if (isNaN(target) || target === 0) return;
+                var duration = 800;
+                var start = 0;
+                var startTime = null;
+                function step(ts) {
+                    if (!startTime) startTime = ts;
+                    var progress = Math.min((ts - startTime) / duration, 1);
+                    var eased = 1 - Math.pow(1 - progress, 3);
+                    el.textContent = Math.round(eased * target);
+                    if (progress < 1) requestAnimationFrame(step);
+                }
+                el.textContent = '0';
+                requestAnimationFrame(step);
+            });
             // Returns a CSV button config with a per-table filename
             function makeBtn(tableName) {
                 return [{
@@ -1802,10 +2129,129 @@ class NeoToCFFormatter:
                 var modal = new bootstrap.Modal(document.getElementById('readinessModal'));
                 modal.show();
             });
+
+            // Migration Readiness Donut Charts
+            var donutColors = ['#2E844A', '#F0AB00', '#E52929'];
+            var donutLabels = ['Ready', 'Needs Check', 'Action Needed'];
+
+            function makeDonut(canvasId, chartData) {
+                var total = chartData.reduce(function(a, b) { return a + b; }, 0);
+                if (total === 0) return;
+                var legendLabels = donutLabels.map(function(label, i) {
+                    var pct = Math.round((chartData[i] / total) * 100);
+                    return label + ' (' + chartData[i] + ' \u00b7 ' + pct + '%)';
+                });
+                new Chart(document.getElementById(canvasId), {
+                    type: 'doughnut',
+                    data: {
+                        labels: legendLabels,
+                        datasets: [{
+                            data: chartData,
+                            backgroundColor: donutColors,
+                            borderWidth: 2,
+                            borderColor: '#fff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        cutout: '55%',
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { font: { size: 11 }, padding: 12 }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(ctx) {
+                                        var pct = Math.round((ctx.raw / total) * 100);
+                                        return ctx.label + ': ' + ctx.raw + ' (' + pct + '%)';
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    plugins: [{
+                        id: 'pctLabels',
+                        afterDraw: function(chart) {
+                            var ctx = chart.ctx;
+                            var ds = chart.data.datasets[0];
+                            var t = ds.data.reduce(function(a, b) { return a + b; }, 0);
+                            if (t === 0) return;
+                            chart.getDatasetMeta(0).data.forEach(function(arc, i) {
+                                var val = ds.data[i];
+                                if (val === 0) return;
+                                var pct = Math.round((val / t) * 100);
+                                if (pct < 5) return;
+                                var angle = (arc.startAngle + arc.endAngle) / 2;
+                                var radius = (arc.innerRadius + arc.outerRadius) / 2;
+                                var x = arc.x + Math.cos(angle) * radius;
+                                var y = arc.y + Math.sin(angle) * radius;
+                                ctx.save();
+                                ctx.fillStyle = '#fff';
+                                ctx.font = 'bold 12px sans-serif';
+                                ctx.textAlign = 'center';
+                                ctx.textBaseline = 'middle';
+                                ctx.fillText(pct + '%', x, y);
+                                ctx.restore();
+                            });
+                        }
+                    }]
+                });
+            }
+
+            makeDonut('pkgDonut', [__PKG_GREEN__, __PKG_AMBER__, __PKG_RED__]);
+            makeDonut('artDonut', [__ART_GREEN__, __ART_AMBER__, __ART_RED__]);
+
+            // Back-to-top button visibility
+            var topBtn = document.getElementById('backToTop');
+            if (topBtn) {
+                window.addEventListener('scroll', function() {
+                    if (window.scrollY > 300) {
+                        topBtn.classList.add('visible');
+                    } else {
+                        topBtn.classList.remove('visible');
+                    }
+                });
+            }
+
+            // Collapsible content cards — click h3 to toggle
+            document.querySelectorAll('.content-card h3').forEach(function(h3) {
+                h3.addEventListener('click', function() {
+                    var card = this.closest('.content-card');
+                    // Wrap all siblings after h3 in a card-body div if not already
+                    var body = card.querySelector('.card-body');
+                    if (!body) {
+                        body = document.createElement('div');
+                        body.className = 'card-body';
+                        var children = Array.from(card.children);
+                        var afterH3 = false;
+                        children.forEach(function(child) {
+                            if (child === h3) { afterH3 = true; return; }
+                            if (afterH3 && child.tagName !== 'SCRIPT') {
+                                body.appendChild(child);
+                            }
+                        });
+                        card.appendChild(body);
+                    }
+                    card.classList.toggle('collapsed');
+                });
+            });
         });
     </script>"""
         
         # Extract date portion from captured_at for CSV filenames (YYYYMMDD_HHMMSS)
         extraction_date = self.captured_at[:10].replace('-', '') if self.captured_at else ''
 
-        return js.replace('__TENANT_ID__', tenant_safe).replace('__EXTRACTION_DATE__', extraction_date)
+        # Inject donut chart data
+        donut = getattr(self, '_donut_data', {'pkg': {'green': 0, 'amber': 0, 'red': 0}, 'art': {'green': 0, 'amber': 0, 'red': 0}})
+
+        return (js
+            .replace('__TENANT_ID__', tenant_safe)
+            .replace('__EXTRACTION_DATE__', extraction_date)
+            .replace('__PKG_GREEN__', str(donut['pkg']['green']))
+            .replace('__PKG_AMBER__', str(donut['pkg']['amber']))
+            .replace('__PKG_RED__', str(donut['pkg']['red']))
+            .replace('__ART_GREEN__', str(donut['art']['green']))
+            .replace('__ART_AMBER__', str(donut['art']['amber']))
+            .replace('__ART_RED__', str(donut['art']['red']))
+        )

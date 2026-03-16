@@ -71,56 +71,15 @@ class Config:
         # =============================================================================
         self.execution_mode = self._get_optional("EXECUTION_MODE", "FULL").upper()
         self.report_db_path = self._get_optional("REPORT_DB_PATH", "").strip()
-        
-        # For FULL mode, everything is enabled (hardcoded to TRUE)
-        if self.execution_mode == "FULL":
-            self.download_runtime_artifacts = True
-            self.download_packages = True
-            self.download_iflows = True
-            self.download_resources = True
-            self.download_configurations = True
-            self.download_message_mappings = True
-            self.download_value_mappings = True
-            self.download_script_collections = True
-            self.download_security_apis = True
-            self.download_partner_directory = True
-            self.download_discover_versions = True
-            self.download_artifact_zips = True
-            self.extract_readonly_packages = True
-            self.extract_iflow_content = True
-            self.extract_script_collection_content = True
-            self.extract_message_mapping_content = True
-            self.extract_value_mapping_content = True
-            self.parse_iflw_content = True
-        else:
-            # For REPORT_ONLY mode, all downloads/parsing disabled
-            self.download_runtime_artifacts = False
-            self.download_packages = False
-            self.download_iflows = False
-            self.download_resources = False
-            self.download_configurations = False
-            self.download_message_mappings = False
-            self.download_value_mappings = False
-            self.download_script_collections = False
-            self.download_security_apis = False
-            self.download_partner_directory = False
-            self.download_discover_versions = False
-            self.download_artifact_zips = False
-            self.extract_readonly_packages = False
-            self.extract_iflow_content = False
-            self.extract_script_collection_content = False
-            self.extract_message_mapping_content = False
-            self.extract_value_mapping_content = False
-            self.parse_iflw_content = False
-        
-        # Legacy flag support (with deprecation warnings)
-        self._check_legacy_flags()
-        
+
         # Additional Configuration
         self.max_artifact_size_mb = int(self._get_optional("MAX_ARTIFACT_SIZE_MB", "50"))
 
         # Report Selection (applies to both FULL and REPORT_ONLY modes)
         self.report_neo_to_cf = self._get_bool('REPORT_NEO_TO_CF', 'true')
+
+        # Cleanup (FULL mode only)
+        self.cleanup_downloads = self._get_bool('CLEANUP_DOWNLOADS', 'false')
         
         # Optional Discover Tenant Configuration
         self.discover_base_url = self._get_optional("DISCOVER_BASE_URL", "").strip()
@@ -130,30 +89,6 @@ class Config:
         
         # Ensure directories exist
         self._ensure_directories()
-    
-    def _check_legacy_flags(self):
-        """Check for legacy configuration flags and log warnings"""
-        try:
-            from utils.logger import get_logger
-            logger = get_logger(__name__)
-        except ImportError:
-            import logging
-            logger = logging.getLogger(__name__)
-        
-        legacy_flags = {
-            'DOWNLOAD_ONLY': 'Use EXECUTION_MODE=FULL instead',
-            'ANALYZE_EXISTING': 'Use EXECUTION_MODE=REPORT_ONLY with REPORT_DB_PATH',
-            'ANALYZE_RUN_TIMESTAMP': 'Use REPORT_DB_PATH instead',
-            'DOWNLOAD_PACKAGES': 'FULL mode downloads everything automatically',
-            'DOWNLOAD_IFLOWS': 'FULL mode downloads everything automatically',
-            'EXTRACT_IFLOW_CONTENT': 'FULL mode extracts everything automatically',
-            'PARSE_IFLW_CONTENT': 'FULL mode parses everything automatically',
-            'KEEP_RUNS': 'Removed - manage runs manually'
-        }
-        
-        for flag, message in legacy_flags.items():
-            if os.getenv(flag):
-                logger.warning(f"⚠️  {flag} is deprecated. {message}")
     
     def _get_required(self, key: str) -> str:
         """

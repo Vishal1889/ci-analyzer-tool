@@ -132,36 +132,146 @@ class NeoToCFMigrationReport(BaseReport):
             logger.debug("  iflw_channel table not available — systems count set to 0")
         
         total_artifacts = iflow_count + script_count + msg_map_count + val_map_count
-        
-        # Get critical alerts
-        alerts = []
-        
-        # Check for outdated packages (placeholder - need Discover data)
-        outdated_query = """
-        SELECT COUNT(*) FROM package 
-        WHERE tenant_id = ? 
-        AND ModifiedDate < date('now', '-180 days')
-        """
-        outdated_count = self.execute_scalar(outdated_query, (self.tenant_id,)) or 0
-        if outdated_count > 0:
-            alerts.append({
-                'type': 'warning',
-                'message': f'{outdated_count} package(s) not modified in 6+ months'
-            })
-        
-        # Check for undeployed IFlows
-        undeployed_query = """
-        SELECT COUNT(DISTINCT i.Id) 
-        FROM iflow i
-        LEFT JOIN runtime r ON i.Id = r.Id AND i.tenant_id = r.tenant_id
-        WHERE i.tenant_id = ? AND r.Id IS NULL
-        """
-        undeployed_count = self.execute_scalar(undeployed_query, (self.tenant_id,)) or 0
-        if undeployed_count > 0:
-            alerts.append({
-                'type': 'info',
-                'message': f'{undeployed_count} IFlow(s) not deployed to runtime'
-            })
+
+        # Environment variable count (files using HC_ vars — matches Environment Variables tab)
+        env_var_artifact_count = 0
+        try:
+            env_var_artifact_count = self.execute_scalar(
+                "SELECT COUNT(*) FROM environment_variable_check WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0",
+                (self.tenant_id,)
+            ) or 0
+        except Exception:
+            pass
+
+        # Certificate-to-user mapping count (NEO only)
+        cert_mapping_count = 0
+        if self.subaccount_type == 'NEO':
+            try:
+                cert_mapping_count = self.execute_scalar(
+                    "SELECT COUNT(*) FROM security_certificate_user_mapping WHERE tenant_id = ?",
+                    (self.tenant_id,)
+                ) or 0
+            except Exception:
+                pass
+
+        # Points to Note — compute all 5 items with counts
+        points_to_note = []
+
+        # 1. Version mismatches (design vs discover)
+        version_mismatch_count = 0
+        try:
+            version_mismatch_count = self.execute_scalar(
+                "SELECT COUNT(*) FROM package_discover_version WHERE tenant_id = ? AND CurrentVersion != DiscoverVersion AND DiscoverVersion != 'Manual check needed'",
+                (self.tenant_id,)
+            ) or 0
+        except Exception:
+            pass
+        points_to_note.append({
+            'label': 'Standard packages with version mismatches (Design vs Discover)',
+            'count': version_mismatch_count,
+            'status': 'warning' if version_mismatch_count > 0 else 'ok'
+        })
+
+        # 1b. Standard packages where Discover version could not be validated
+        manual_check_count = 0
+        try:
+            manual_check_count = self.execute_scalar(
+                "SELECT COUNT(*) FROM package_discover_version WHERE tenant_id = ? AND DiscoverVersion = 'Manual check needed'",
+                (self.tenant_id,)
+            ) or 0
+        except Exception:
+            pass
+        points_to_note.append({
+            'label': 'Standard packages requiring manual version check',
+            'count': manual_check_count,
+            'status': 'warning' if manual_check_count > 0 else 'ok'
+        })
+
+        # 2. Artifacts in draft status
+        draft_count = 0
+        try:
+            draft_count = self.execute_scalar(
+                """SELECT COUNT(*) FROM (
+                    SELECT Id FROM iflow WHERE tenant_id = ? AND Version = 'Active'
+                    UNION ALL SELECT Id FROM script_collection WHERE tenant_id = ? AND Version = 'Active'
+                    UNION ALL SELECT Id FROM message_mapping WHERE tenant_id = ? AND Version = 'Active'
+                    UNION ALL SELECT Id FROM value_mapping WHERE tenant_id = ? AND Version = 'Active'
+                )""",
+                (self.tenant_id, self.tenant_id, self.tenant_id, self.tenant_id)
+            ) or 0
+        except Exception:
+            pass
+        points_to_note.append({
+            'label': 'Artifacts in draft status',
+            'count': draft_count,
+            'status': 'warning' if draft_count > 0 else 'ok'
+        })
+
+        # 3. Artifacts not yet deployed
+        not_deployed_count = 0
+        try:
+            not_deployed_count = self.execute_scalar(
+                """SELECT COUNT(*) FROM (
+                    SELECT i.Id FROM iflow i LEFT JOIN runtime r ON i.Id = r.Id AND i.tenant_id = r.tenant_id WHERE i.tenant_id = ? AND r.Id IS NULL
+                    UNION ALL SELECT sc.Id FROM script_collection sc LEFT JOIN runtime r ON sc.Id = r.Id AND r.Type = 'SCRIPT_COLLECTION' AND sc.tenant_id = r.tenant_id WHERE sc.tenant_id = ? AND r.Id IS NULL
+                    UNION ALL SELECT mm.Id FROM message_mapping mm LEFT JOIN runtime r ON mm.Id = r.Id AND r.Type = 'MESSAGE_MAPPING' AND mm.tenant_id = r.tenant_id WHERE mm.tenant_id = ? AND r.Id IS NULL
+                    UNION ALL SELECT vm.Id FROM value_mapping vm LEFT JOIN runtime r ON vm.Id = r.Id AND r.Type = 'VALUE_MAPPING' AND vm.tenant_id = r.tenant_id WHERE vm.tenant_id = ? AND r.Id IS NULL
+                )""",
+                (self.tenant_id, self.tenant_id, self.tenant_id, self.tenant_id)
+            ) or 0
+        except Exception:
+            pass
+        points_to_note.append({
+            'label': 'Artifacts not yet deployed',
+            'count': not_deployed_count,
+            'status': 'warning' if not_deployed_count > 0 else 'ok'
+        })
+
+        # 4. Artifacts with design/runtime version mismatch (out of sync)
+        out_of_sync_count = 0
+        try:
+            out_of_sync_count = self.execute_scalar(
+                """SELECT COUNT(*) FROM (
+                    SELECT i.Id FROM iflow i INNER JOIN runtime r ON i.Id = r.Id AND i.tenant_id = r.tenant_id WHERE i.tenant_id = ? AND i.Version != r.Version
+                    UNION ALL SELECT sc.Id FROM script_collection sc INNER JOIN runtime r ON sc.Id = r.Id AND r.Type = 'SCRIPT_COLLECTION' AND sc.tenant_id = r.tenant_id WHERE sc.tenant_id = ? AND sc.Version != r.Version
+                    UNION ALL SELECT mm.Id FROM message_mapping mm INNER JOIN runtime r ON mm.Id = r.Id AND r.Type = 'MESSAGE_MAPPING' AND mm.tenant_id = r.tenant_id WHERE mm.tenant_id = ? AND mm.Version != r.Version
+                    UNION ALL SELECT vm.Id FROM value_mapping vm INNER JOIN runtime r ON vm.Id = r.Id AND r.Type = 'VALUE_MAPPING' AND vm.tenant_id = r.tenant_id WHERE vm.tenant_id = ? AND vm.Version != r.Version
+                )""",
+                (self.tenant_id, self.tenant_id, self.tenant_id, self.tenant_id)
+            ) or 0
+        except Exception:
+            pass
+        points_to_note.append({
+            'label': 'Artifacts with version mismatch (Design vs Deployed)',
+            'count': out_of_sync_count,
+            'status': 'warning' if out_of_sync_count > 0 else 'ok'
+        })
+
+        # 5. Expired certificates in keystore (parse OData /Date(timestamp)/ format)
+        expired_cert_count = 0
+        try:
+            import re
+            from datetime import datetime as dt
+            now = dt.now()
+            entries = self.execute_query(
+                "SELECT ValidNotAfter FROM security_keystore_entry WHERE tenant_id = ?",
+                (self.tenant_id,)
+            )
+            for entry in entries:
+                raw = entry.get('ValidNotAfter', '')
+                match = re.search(r'/Date\((\d+)\)/', str(raw))
+                if match:
+                    ts = int(match.group(1)) / 1000
+                    valid_to = dt.fromtimestamp(ts)
+                    if valid_to < now:
+                        expired_cert_count += 1
+        except Exception:
+            pass
+        points_to_note.append({
+            'label': 'Expired certificates in keystore',
+            'count': expired_cert_count,
+            'status': 'warning' if expired_cert_count > 0 else 'ok'
+        })
         
         # Package distribution for bar chart (always include all types, even if zero)
         package_distribution = [
@@ -207,6 +317,43 @@ class NeoToCFMigrationReport(BaseReport):
         LIMIT 5
         """
         top_packages = self.execute_query(top_packages_query, (self.tenant_id,))
+
+        # Artifact readiness counts for donut chart (same logic as deployment query)
+        artifact_readiness = {'green': 0, 'amber': 0, 'red': 0}
+        try:
+            ar_rows = self.execute_query("""
+                SELECT readiness, COUNT(*) as cnt FROM (
+                    SELECT CASE
+                        WHEN evc.parentName IS NOT NULL THEN 'red'
+                        WHEN i.Version = 'Active' THEN 'amber'
+                        ELSE 'green'
+                    END as readiness
+                    FROM iflow i LEFT JOIN (
+                        SELECT DISTINCT parentName FROM environment_variable_check
+                        WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                    ) evc ON i.Id = evc.parentName WHERE i.tenant_id = ?
+                    UNION ALL
+                    SELECT CASE
+                        WHEN evc.parentName IS NOT NULL THEN 'red'
+                        WHEN sc.Version = 'Active' THEN 'amber'
+                        ELSE 'green'
+                    END FROM script_collection sc LEFT JOIN (
+                        SELECT DISTINCT parentName FROM environment_variable_check
+                        WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                    ) evc ON sc.Id = evc.parentName WHERE sc.tenant_id = ?
+                    UNION ALL
+                    SELECT CASE WHEN mm.Version = 'Active' THEN 'amber' ELSE 'green' END
+                    FROM message_mapping mm WHERE mm.tenant_id = ?
+                    UNION ALL
+                    SELECT CASE WHEN vm.Version = 'Active' THEN 'amber' ELSE 'green' END
+                    FROM value_mapping vm WHERE vm.tenant_id = ?
+                ) GROUP BY readiness""",
+                (self.tenant_id, self.tenant_id, self.tenant_id, self.tenant_id, self.tenant_id, self.tenant_id)
+            )
+            for r in ar_rows:
+                artifact_readiness[r['readiness']] = r['cnt']
+        except Exception:
+            pass
         
         return {
             'kpis': {
@@ -219,10 +366,13 @@ class NeoToCFMigrationReport(BaseReport):
                 'total_msg_maps': msg_map_count,
                 'total_val_maps': val_map_count,
                 'total_artifacts': total_artifacts,
-                'unique_systems': systems_count
+                'unique_systems': systems_count,
+                'env_var_artifacts': env_var_artifact_count,
+                'cert_mappings': cert_mapping_count,
             },
             'package_distribution': package_distribution,
-            'alerts': alerts,
+            'artifact_readiness': artifact_readiness,
+            'points_to_note': points_to_note,
             'top_packages': top_packages
         }
     

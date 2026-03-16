@@ -252,6 +252,14 @@ ENV_FIELDS = [
         "section": "Runtime Settings",
         "default": "50",
     },
+    {
+        "key": "CLEANUP_DOWNLOADS",
+        "label": "Clean up downloads after report generation",
+        "type": "checkbox",
+        "section": "Runtime Settings",
+        "default": "false",
+        "depends_on": {"EXECUTION_MODE": "FULL"},
+    },
 
     # ── Discover Integration (Optional) ─────────────────────────────────────────
     {
