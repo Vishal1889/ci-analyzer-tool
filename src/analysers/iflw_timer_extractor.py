@@ -1,5 +1,5 @@
 """
-BPMN Timer Extractor for SAP Cloud Integration Analyzer Tool
+IFLW Timer Extractor for SAP Cloud Integration Analyzer Tool
 Extracts timer configurations from Timer Start Events and Scheduled Channels
 """
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass
 from utils.logger import get_logger
-from analysers.bpmn_process_activity_resolver import BpmnProcessActivityResolver
+from analysers.iflw_process_activity_resolver import IflwProcessActivityResolver
 
 logger = get_logger(__name__)
 
@@ -22,8 +22,8 @@ NAMESPACES = {
 
 
 @dataclass
-class BpmnTimer:
-    """Represents a BPMN timer configuration"""
+class IflwTimer:
+    """Represents an IFLW timer configuration"""
     package_id: str
     iflow_id: str
     type: str  # "Event" or "Channel"
@@ -59,13 +59,13 @@ class BpmnTimer:
         }
 
 
-class BpmnTimerAnalyzer:
-    """Analyzes BPMN XML to extract timer configurations"""
+class IflwTimerAnalyzer:
+    """Analyzes IFLW XML to extract timer configurations"""
     
     @staticmethod
-    def analyze(root: ET.Element, iflow_id: str, package_id: str, configurations: Dict[str, str] = None) -> List[BpmnTimer]:
+    def analyze(root: ET.Element, iflow_id: str, package_id: str, configurations: Dict[str, str] = None) -> List[IflwTimer]:
         """
-        Extract timer configurations from BPMN XML
+        Extract timer configurations from IFLW XML
         
         Args:
             root: XML root element
@@ -74,22 +74,22 @@ class BpmnTimerAnalyzer:
             configurations: Configuration dictionary for placeholder resolution
             
         Returns:
-            List of BpmnTimer objects
+            List of IflwTimer objects
         """
         timers = []
         
         # Extract Timer Start Events (type="Event")
-        event_timers = BpmnTimerAnalyzer._extract_timer_events(root, iflow_id, package_id, configurations)
+        event_timers = IflwTimerAnalyzer._extract_timer_events(root, iflow_id, package_id, configurations)
         timers.extend(event_timers)
         
         # Extract Scheduled Channels (type="Channel")
-        channel_timers = BpmnTimerAnalyzer._extract_scheduled_channels(root, iflow_id, package_id, configurations)
+        channel_timers = IflwTimerAnalyzer._extract_scheduled_channels(root, iflow_id, package_id, configurations)
         timers.extend(channel_timers)
         
         return timers
     
     @staticmethod
-    def _extract_timer_events(root: ET.Element, iflow_id: str, package_id: str, configurations: Dict[str, str] = None) -> List[BpmnTimer]:
+    def _extract_timer_events(root: ET.Element, iflow_id: str, package_id: str, configurations: Dict[str, str] = None) -> List[IflwTimer]:
         """Extract Timer Start Events from processes"""
         timers = []
         
@@ -115,11 +115,11 @@ class BpmnTimerAnalyzer:
                 event_name = start_event.get('name', '')
                 
                 # Extract properties from timerEventDefinition (not from startEvent!)
-                props = BpmnTimerAnalyzer._extract_properties(timer_def)
+                props = IflwTimerAnalyzer._extract_properties(timer_def)
                 
                 # Check if this is a StartTimerEvent (filter condition from Java code)
                 activity_type = props.get('activityType')
-                if activity_type and not BpmnTimerAnalyzer._equals_ignore_case(activity_type, 'StartTimerEvent'):
+                if activity_type and not IflwTimerAnalyzer._equals_ignore_case(activity_type, 'StartTimerEvent'):
                     continue
                 
                 # Use activityType if present, otherwise default to StartTimerEvent
@@ -129,16 +129,16 @@ class BpmnTimerAnalyzer:
                 schedule_key = props.get('scheduleKey')
                 
                 # Resolve configuration
-                schedule_key_resolved = BpmnProcessActivityResolver.resolveOnePass(
+                schedule_key_resolved = IflwProcessActivityResolver.resolveOnePass(
                     schedule_key, configurations
                 ) if configurations else schedule_key
                 
                 # Parse cron expression
-                cron_expression, time_zone, cron_description = BpmnTimerAnalyzer._analyze_cron_expression(
+                cron_expression, time_zone, cron_description = IflwTimerAnalyzer._analyze_cron_expression(
                     schedule_key_resolved
                 )
                 
-                timer = BpmnTimer(
+                timer = IflwTimer(
                     package_id=package_id,
                     iflow_id=iflow_id,
                     type='Event',
@@ -161,7 +161,7 @@ class BpmnTimerAnalyzer:
         return timers
     
     @staticmethod
-    def _extract_scheduled_channels(root: ET.Element, iflow_id: str, package_id: str, configurations: Dict[str, str] = None) -> List[BpmnTimer]:
+    def _extract_scheduled_channels(root: ET.Element, iflow_id: str, package_id: str, configurations: Dict[str, str] = None) -> List[IflwTimer]:
         """Extract Scheduled Channels from message flows"""
         timers = []
         
@@ -185,7 +185,7 @@ class BpmnTimerAnalyzer:
                 source_ref = msg_flow.get('sourceRef', '')
                 
                 # Extract properties
-                props = BpmnTimerAnalyzer._extract_properties(msg_flow)
+                props = IflwTimerAnalyzer._extract_properties(msg_flow)
                 
                 schedule_key = props.get('scheduleKey')
                 
@@ -200,16 +200,16 @@ class BpmnTimerAnalyzer:
                 participant_name = participants.get(source_ref, '')
                 
                 # Resolve configuration
-                schedule_key_resolved = BpmnProcessActivityResolver.resolveOnePass(
+                schedule_key_resolved = IflwProcessActivityResolver.resolveOnePass(
                     schedule_key, configurations
                 ) if configurations else schedule_key
                 
                 # Parse cron expression
-                cron_expression, time_zone, cron_description = BpmnTimerAnalyzer._analyze_cron_expression(
+                cron_expression, time_zone, cron_description = IflwTimerAnalyzer._analyze_cron_expression(
                     schedule_key_resolved
                 )
                 
-                timer = BpmnTimer(
+                timer = IflwTimer(
                     package_id=package_id,
                     iflow_id=iflow_id,
                     type='Channel',
@@ -252,13 +252,13 @@ class BpmnTimerAnalyzer:
         # Detect format: XML vs Text
         if schedule_key_resolved.strip().startswith('<row>'):
             # XML format
-            cron_expression, time_zone = BpmnTimerAnalyzer._parse_xml_schedule(schedule_key_resolved)
+            cron_expression, time_zone = IflwTimerAnalyzer._parse_xml_schedule(schedule_key_resolved)
         else:
             # Text format
-            cron_expression, time_zone = BpmnTimerAnalyzer._parse_text_schedule(schedule_key_resolved)
+            cron_expression, time_zone = IflwTimerAnalyzer._parse_text_schedule(schedule_key_resolved)
         
         # Generate description
-        cron_description = BpmnTimerAnalyzer._generate_cron_description(cron_expression)
+        cron_description = IflwTimerAnalyzer._generate_cron_description(cron_expression)
         
         return cron_expression, time_zone, cron_description
     
@@ -402,12 +402,12 @@ class BpmnTimerAnalyzer:
         return str1.lower() == str2.lower()
 
 
-class BpmnTimerExtractor:
-    """Main extractor for BPMN timers across all IFLW files"""
+class IflwTimerExtractor:
+    """Main extractor for IFLW timers across all IFLW files"""
     
     def __init__(self, iflw_files_dir: Path, output_dir: Path, timestamp: str = None):
         """
-        Initialize BPMN Timer Extractor
+        Initialize IFLW Timer Extractor
         
         Args:
             iflw_files_dir: Directory containing IFLW files
@@ -421,7 +421,7 @@ class BpmnTimerExtractor:
         # Track errors
         self.errors = []
         
-        logger.info("BpmnTimerExtractor initialized")
+        logger.info("IflwTimerExtractor initialized")
         logger.info(f"  IFLW files: {self.iflw_files_dir}")
         logger.info(f"  Output: {self.output_dir}")
     
@@ -435,7 +435,7 @@ class BpmnTimerExtractor:
         Returns:
             Dictionary with extraction statistics
         """
-        logger.info("Starting BPMN timer extraction...")
+        logger.info("Starting IFLW timer extraction...")
         
         stats = {
             "iflw_files_attempted": 0,
@@ -483,7 +483,7 @@ class BpmnTimerExtractor:
                 iflow_config = configurations.get(iflow_id) if configurations else None
                 
                 # Extract timers
-                timers = BpmnTimerAnalyzer.analyze(
+                timers = IflwTimerAnalyzer.analyze(
                     root=root,
                     iflow_id=iflow_id,
                     package_id=package_id,
@@ -518,7 +518,7 @@ class BpmnTimerExtractor:
         if self.errors:
             self._save_error_log()
         
-        logger.info(f"BPMN timer extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
+        logger.info(f"IFLW timer extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
         logger.info(f"Total timers extracted: {stats['total_timers_extracted']} (Events: {stats['event_timers']}, Channels: {stats['channel_timers']})")
         
         return stats
@@ -538,13 +538,13 @@ class BpmnTimerExtractor:
         
         return package_id, iflow_id
     
-    def _save_output(self, timers: List[BpmnTimer]):
+    def _save_output(self, timers: List[IflwTimer]):
         """Save timers to JSON file"""
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Save timers
-        output_file = self.output_dir / "bpmn-timers.json"
+        output_file = self.output_dir / "iflw-timers.json"
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump([t.to_dict() for t in timers], f, indent=4, ensure_ascii=False)
         logger.info(f"Saved {len(timers)} timers to {output_file}")
@@ -560,7 +560,7 @@ class BpmnTimerExtractor:
     
     def _save_error_log(self):
         """Save error log to JSON file"""
-        output_file = self.output_dir / "bpmn-timer-extraction-errors.json"
+        output_file = self.output_dir / "iflw-timer-extraction-errors.json"
         
         output_data = {
             "errors": self.errors,
@@ -570,4 +570,4 @@ class BpmnTimerExtractor:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        logger.info(f"Saved timer extraction error log: bpmn-timer-extraction-errors.json")
+        logger.info(f"Saved timer extraction error log: iflw-timer-extraction-errors.json")

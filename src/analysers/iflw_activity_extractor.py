@@ -1,5 +1,5 @@
 """
-BPMN Process Activity Extractor for SAP Cloud Integration Analyzer Tool
+IFLW Process Activity Extractor for SAP Cloud Integration Analyzer Tool
 Extracts process activities (integration flow steps/components) from IFLW (BPMN XML) files
 Includes configuration resolution for activity properties
 """
@@ -14,7 +14,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# XML Namespaces for BPMN 2.0
+# XML Namespaces for IFLW (BPMN 2.0)
 NAMESPACES = {
     'bpmn2': 'http://www.omg.org/spec/BPMN/20100524/MODEL',
     'ifl': 'http:///com.sap.ifl.model/Ifl.xsd'
@@ -30,8 +30,8 @@ METADATA_KEYS = {
 
 
 @dataclass
-class BpmnProcessActivity:
-    """Represents a BPMN process activity (integration flow step/component)"""
+class IflwProcessActivity:
+    """Represents an IFLW process activity (integration flow step/component)"""
     # Identification
     id: str
     name: str
@@ -64,8 +64,8 @@ class BpmnProcessActivity:
 
 
 @dataclass
-class BpmnProcessActivityProperty:
-    """Represents a property of a BPMN process activity"""
+class IflwProcessActivityProperty:
+    """Represents a property of an IFLW process activity"""
     package_id: str
     iflow_id: str
     process_id: str
@@ -97,13 +97,13 @@ class BpmnProcessActivityProperty:
         }
 
 
-class BpmnProcessActivityAnalyzer:
-    """Analyzes BPMN XML to extract process activities"""
+class IflwProcessActivityAnalyzer:
+    """Analyzes IFLW XML to extract process activities"""
     
     @staticmethod
-    def analyze(root: ET.Element, iflow_id: str, package_id: str) -> Tuple[List[BpmnProcessActivity], List[BpmnProcessActivityProperty]]:
+    def analyze(root: ET.Element, iflow_id: str, package_id: str) -> Tuple[List[IflwProcessActivity], List[IflwProcessActivityProperty]]:
         """
-        Analyze BPMN XML to extract all process activities
+        Analyze IFLW XML to extract all process activities
         
         Args:
             root: XML root element
@@ -144,7 +144,7 @@ class BpmnProcessActivityAnalyzer:
                 activity_name = activity_xml.get('name', '')
                 
                 # Extract properties from extension elements
-                props = BpmnProcessActivityAnalyzer._extract_properties(activity_xml)
+                props = IflwProcessActivityAnalyzer._extract_properties(activity_xml)
                 
                 # Extract metadata from properties
                 # Preserve None for both missing keys and blank values (both → null in JSON)
@@ -154,7 +154,7 @@ class BpmnProcessActivityAnalyzer:
                 cmd_variant_uri = props.get('cmdVariantUri')
                 
                 # Create activity object
-                activity = BpmnProcessActivity(
+                activity = IflwProcessActivity(
                     id=activity_id,
                     name=activity_name,
                     process_id=process_id,
@@ -171,7 +171,7 @@ class BpmnProcessActivityAnalyzer:
                 # Create property objects (exclude metadata fields)
                 for key, value in props.items():
                     if key not in METADATA_KEYS:
-                        prop = BpmnProcessActivityProperty(
+                        prop = IflwProcessActivityProperty(
                             package_id=package_id,
                             iflow_id=iflow_id,
                             process_id=process_id,
@@ -241,11 +241,11 @@ class BpmnProcessActivityAnalyzer:
         return s if s else None
 
 
-class BpmnProcessActivityResolver:
+class IflwProcessActivityResolver:
     """Resolves configuration placeholders in activity properties"""
     
     @staticmethod
-    def resolve_config_to_properties(properties: List[BpmnProcessActivityProperty],
+    def resolve_config_to_properties(properties: List[IflwProcessActivityProperty],
                                      config: Dict[str, str]):
         """
         Resolve {{placeholder}} values in properties using configuration
@@ -261,7 +261,7 @@ class BpmnProcessActivityResolver:
             config = {}
         
         for prop in properties:
-            prop.resolved_value = BpmnProcessActivityResolver._resolve_one_pass(
+            prop.resolved_value = IflwProcessActivityResolver._resolve_one_pass(
                 prop.raw_value, config
             )
     
@@ -317,13 +317,13 @@ class BpmnProcessActivityResolver:
         return ''.join(result)
 
 
-class BpmnActivityExtractor:
-    """Main extractor for BPMN process activities across all IFLW files"""
+class IflwActivityExtractor:
+    """Main extractor for IFLW process activities across all IFLW files"""
     
     def __init__(self, iflw_files_dir: Path, configurations_file: Path,
                  output_dir: Path, timestamp: str = None):
         """
-        Initialize BPMN Activity Extractor
+        Initialize IFLW Activity Extractor
         
         Args:
             iflw_files_dir: Directory containing IFLW files
@@ -339,7 +339,7 @@ class BpmnActivityExtractor:
         # Track errors
         self.errors = []
         
-        logger.info("BpmnActivityExtractor initialized")
+        logger.info("IflwActivityExtractor initialized")
         logger.info(f"  IFLW files: {self.iflw_files_dir}")
         logger.info(f"  Configurations: {self.configurations_file}")
         logger.info(f"  Output: {self.output_dir}")
@@ -351,7 +351,7 @@ class BpmnActivityExtractor:
         Returns:
             Dictionary with extraction statistics
         """
-        logger.info("Starting BPMN activity extraction...")
+        logger.info("Starting IFLW activity extraction...")
         
         stats = {
             "iflw_files_attempted": 0,
@@ -404,14 +404,14 @@ class BpmnActivityExtractor:
                 iflow_config = configurations.get(iflow_id, {})
                 
                 # Extract activities
-                activities, properties = BpmnProcessActivityAnalyzer.analyze(
+                activities, properties = IflwProcessActivityAnalyzer.analyze(
                     root=root,
                     iflow_id=iflow_id,
                     package_id=package_id
                 )
                 
                 # Resolve configurations
-                BpmnProcessActivityResolver.resolve_config_to_properties(
+                IflwProcessActivityResolver.resolve_config_to_properties(
                     properties, iflow_config
                 )
                 
@@ -448,7 +448,7 @@ class BpmnActivityExtractor:
         if self.errors:
             self._save_error_log()
         
-        logger.info(f"BPMN activity extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
+        logger.info(f"IFLW activity extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
         logger.info(f"Total activities extracted: {stats['total_activities_extracted']}")
         logger.info(f"Total properties extracted: {stats['total_properties_extracted']}")
         
@@ -510,20 +510,20 @@ class BpmnActivityExtractor:
         
         return package_id, iflow_id
     
-    def _save_output(self, activities: List[BpmnProcessActivity],
-                     properties: List[BpmnProcessActivityProperty]):
+    def _save_output(self, activities: List[IflwProcessActivity],
+                     properties: List[IflwProcessActivityProperty]):
         """Save activities and properties to JSON files with camelCase keys"""
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Save activities with camelCase keys
-        activities_file = self.output_dir / "bpmn-activities.json"
+        activities_file = self.output_dir / "iflw-activities.json"
         with open(activities_file, 'w', encoding='utf-8') as f:
             json.dump([a.to_camel_case_dict() for a in activities], f, indent=4, ensure_ascii=False)
         logger.info(f"Saved {len(activities)} activities to {activities_file}")
         
         # Save properties with camelCase keys
-        properties_file = self.output_dir / "bpmn-activities-properties.json"
+        properties_file = self.output_dir / "iflw-activities-properties.json"
         with open(properties_file, 'w', encoding='utf-8') as f:
             json.dump([p.to_camel_case_dict() for p in properties], f, indent=4, ensure_ascii=False)
         logger.info(f"Saved {len(properties)} properties to {properties_file}")
@@ -539,7 +539,7 @@ class BpmnActivityExtractor:
     
     def _save_error_log(self):
         """Save error log to JSON file"""
-        output_file = self.output_dir / "bpmn-activity-extraction-errors.json"
+        output_file = self.output_dir / "iflw-activity-extraction-errors.json"
         
         output_data = {
             "errors": self.errors,
@@ -549,4 +549,4 @@ class BpmnActivityExtractor:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        logger.info(f"Saved extraction error log: bpmn-activity-extraction-errors.json")
+        logger.info(f"Saved extraction error log: iflw-activity-extraction-errors.json")

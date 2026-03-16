@@ -1,5 +1,5 @@
 """
-BPMN Participant Extractor for SAP Cloud Integration Analyzer Tool
+IFLW Participant Extractor for SAP Cloud Integration Analyzer Tool
 Extracts participant information from IFLW (BPMN XML) files
 """
 
@@ -12,7 +12,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# XML Namespaces for BPMN 2.0
+# XML Namespaces for IFLW (BPMN 2.0)
 NAMESPACES = {
     'bpmn2': 'http://www.omg.org/spec/BPMN/20100524/MODEL',
     'ifl': 'http:///com.sap.ifl.model/Ifl.xsd'
@@ -27,12 +27,12 @@ TYPE_MAPPING = {
 }
 
 
-class BpmnParticipantExtractor:
-    """Extracts participant information from BPMN XML files (.iflw)"""
+class IflwParticipantExtractor:
+    """Extracts participant information from IFLW XML files (.iflw)"""
     
     def __init__(self, iflw_files_dir: Path, output_dir: Path, timestamp: str = None):
         """
-        Initialize BPMN Participant Extractor
+        Initialize IFLW Participant Extractor
         
         Args:
             iflw_files_dir: Directory containing IFLW files
@@ -46,7 +46,7 @@ class BpmnParticipantExtractor:
         # Track errors
         self.errors = []
         
-        logger.info("BpmnParticipantExtractor initialized")
+        logger.info("IflwParticipantExtractor initialized")
         logger.info(f"  Source: {self.iflw_files_dir}")
         logger.info(f"  Output: {self.output_dir}")
     
@@ -57,7 +57,7 @@ class BpmnParticipantExtractor:
         Returns:
             Dictionary with extraction statistics
         """
-        logger.info("Starting BPMN participant extraction...")
+        logger.info("Starting IFLW participant extraction...")
         
         stats = {
             "iflw_files_attempted": 0,
@@ -132,7 +132,7 @@ class BpmnParticipantExtractor:
         if self.errors:
             self._save_error_log()
         
-        logger.info(f"BPMN participant extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
+        logger.info(f"IFLW participant extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
         logger.info(f"Total participants extracted: {stats['total_participants_extracted']}")
         
         return stats
@@ -254,7 +254,7 @@ class BpmnParticipantExtractor:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Output file path
-        output_file = self.output_dir / "bpmn-participants.json"
+        output_file = self.output_dir / "iflw-participants.json"
         
         # Write JSON (with nice formatting)
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -273,7 +273,7 @@ class BpmnParticipantExtractor:
     
     def _save_error_log(self):
         """Save error log to JSON file"""
-        output_file = self.output_dir / "bpmn-participant-extraction-errors.json"
+        output_file = self.output_dir / "iflw-participant-extraction-errors.json"
         
         output_data = {
             "errors": self.errors,
@@ -283,4 +283,4 @@ class BpmnParticipantExtractor:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        logger.info(f"Saved extraction error log: bpmn-participant-extraction-errors.json")
+        logger.info(f"Saved extraction error log: iflw-participant-extraction-errors.json")

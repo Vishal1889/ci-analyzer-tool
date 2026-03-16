@@ -1,6 +1,6 @@
 """
-BPMN Groovy Script Extractor for SAP Cloud Integration Analyzer Tool
-Extracts Groovy script activities from IFLW (BPMN XML) files
+IFLW Message Mapping Extractor for SAP Cloud Integration Analyzer Tool
+Extracts message mapping activities from IFLW (BPMN XML) files
 """
 
 import json
@@ -21,8 +21,8 @@ NAMESPACES = {
 
 
 @dataclass
-class BpmnActivityScript:
-    """Represents a BPMN Groovy script activity"""
+class IflwActivityMessageMapping:
+    """Represents an IFLW message mapping activity"""
     # Base activity fields
     id: str
     name: str
@@ -31,39 +31,49 @@ class BpmnActivityScript:
     iflow_id: str
     package_id: str
     activity_type: str
-    sub_activity_type: str
+    sub_activity_type: Optional[str]
     component_version: Optional[str]
     
-    # Script-specific fields
-    script: Optional[str]              # The actual Groovy script code
-    script_bundle_id: Optional[str]    # Script collection/bundle ID
-    script_function: Optional[str]     # Function name to call
+    # Message mapping-specific fields
+    mapping_id: Optional[str]                    # Message mapping resource ID (mappinguri)
+    mapping_name: Optional[str]                  # Mapping name
+    mapping_path: Optional[str]                  # Mapping path
+    mapping_reference: Optional[str]             # Mapping reference (static/dynamic)
+    mapping_source_value: Optional[str]          # Mapping source value
+    mapping_type: Optional[str]                  # Mapping type
+    message_mapping_bundle_id: Optional[str]     # Message mapping bundle ID
+    source_message: Optional[str]                # Source message type
+    target_message: Optional[str]                # Target message type
     
     def to_camel_case_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary with camelCase keys"""
+        """Convert to dictionary with camelCase keys - matching exact base structure"""
         return {
+            'activityType': self.activity_type,
+            'componentVersion': self.component_version,
             'id': self.id,
+            'iflowId': self.iflow_id,
+            'mappingname': self.mapping_name,
+            'mappingpath': self.mapping_path,
+            'mappingReference': self.mapping_reference,
+            'mappingSourceValue': self.mapping_source_value,
+            'mappingType': self.mapping_type,
+            'mappinguri': self.mapping_id,
+            'messageMappingBundleId': self.message_mapping_bundle_id,
             'name': self.name,
+            'packageId': self.package_id,
             'processId': self.process_id,
             'processName': self.process_name,
-            'iflowId': self.iflow_id,
-            'packageId': self.package_id,
-            'activityType': self.activity_type,
-            'subActivityType': self.sub_activity_type,
-            'componentVersion': self.component_version,
-            'script': self.script,
-            'scriptBundleId': self.script_bundle_id,
-            'scriptFunction': self.script_function
+            'subActivityType': self.sub_activity_type
         }
 
 
-class BpmnActivityScriptAnalyzer:
-    """Analyzes BPMN XML to extract Groovy script activities"""
+class IflwActivityMessageMappingAnalyzer:
+    """Analyzes IFLW XML to extract message mapping activities"""
     
     @staticmethod
-    def analyze_groovy(root: ET.Element, iflow_id: str, package_id: str) -> List[BpmnActivityScript]:
+    def analyze(root: ET.Element, iflow_id: str, package_id: str) -> List[IflwActivityMessageMapping]:
         """
-        Extract Groovy script activities from BPMN XML
+        Extract message mapping activities from IFLW XML
         
         Args:
             root: XML root element
@@ -71,9 +81,9 @@ class BpmnActivityScriptAnalyzer:
             package_id: Package ID
             
         Returns:
-            List of BpmnActivityScript objects
+            List of IflwActivityMessageMapping objects
         """
-        scripts = []
+        mappings = []
         
         # Find all processes and subprocesses
         processes = root.findall('.//bpmn2:process', NAMESPACES)
@@ -87,7 +97,7 @@ class BpmnActivityScriptAnalyzer:
             process_id = proc.get('id', '')
             process_name = proc.get('name', '')
             
-            # Only process callActivity elements (scripts are callActivities)
+            # Only process callActivity elements
             call_activities = proc.findall('bpmn2:callActivity', NAMESPACES)
             
             logger.trace(f"    Process {process_id}: {len(call_activities)} callActivities")
@@ -97,38 +107,50 @@ class BpmnActivityScriptAnalyzer:
                 activity_name = activity.get('name', '')
                 
                 # Extract properties
-                props = BpmnActivityScriptAnalyzer._extract_properties(activity)
+                props = IflwActivityMessageMappingAnalyzer._extract_properties(activity)
                 
                 activity_type = props.get('activityType')
                 sub_activity_type = props.get('subActivityType')
+                mapping_type = props.get('mappingType')
                 
-                # Filter: Only Groovy scripts (case-insensitive)
-                if (BpmnActivityScriptAnalyzer._equals_ignore_case(activity_type, 'Script') and 
-                    BpmnActivityScriptAnalyzer._equals_ignore_case(sub_activity_type, 'GroovyScript')):
+                # Filter: Only Message Mappings
+                # activityType == "Mapping" 
+                # AND mappingType != "XSLTMapping" 
+                # AND subActivityType != "XSLTMapping"
+                if (IflwActivityMessageMappingAnalyzer._equals_ignore_case(activity_type, 'Mapping') and 
+                    not IflwActivityMessageMappingAnalyzer._equals_ignore_case(mapping_type, 'XSLTMapping') and
+                    not IflwActivityMessageMappingAnalyzer._equals_ignore_case(sub_activity_type, 'XSLTMapping')):
                     
-                    # Extract component version
+                    # Extract component version and sub activity type
                     component_version = props.get('componentVersion')
+                    sub_activity_type = props.get('subActivityType')
                     
-                    # Create script object
-                    script = BpmnActivityScript(
+                    # Create message mapping object
+                    mapping = IflwActivityMessageMapping(
                         id=activity_id,
                         name=activity_name,
                         process_id=process_id,
                         process_name=process_name,
                         iflow_id=iflow_id,
                         package_id=package_id,
-                        activity_type=activity_type or 'Script',
-                        sub_activity_type=sub_activity_type or 'GroovyScript',
+                        activity_type=activity_type or 'Mapping',
+                        sub_activity_type=sub_activity_type,
                         component_version=component_version,
-                        script=props.get('script'),
-                        script_bundle_id=props.get('scriptBundleId'),
-                        script_function=props.get('scriptFunction')
+                        mapping_id=props.get('mappinguri'),
+                        mapping_name=props.get('mappingname'),
+                        mapping_path=props.get('mappingpath'),
+                        mapping_reference=props.get('mappingReference'),
+                        mapping_source_value=props.get('mappingSourceValue'),
+                        mapping_type=props.get('mappingType'),
+                        message_mapping_bundle_id=props.get('messageMappingBundleId'),
+                        source_message=props.get('messagemappingSourcemessage'),
+                        target_message=props.get('messagemappingTargetmessage')
                     )
                     
-                    scripts.append(script)
-                    logger.trace(f"      Extracted Groovy script: {activity_id}")
+                    mappings.append(mapping)
+                    logger.trace(f"      Extracted message mapping: {activity_id}")
         
-        return scripts
+        return mappings
     
     @staticmethod
     def _extract_properties(activity_xml: ET.Element) -> Dict[str, Optional[str]]:
@@ -176,12 +198,12 @@ class BpmnActivityScriptAnalyzer:
         return str1.lower() == str2.lower()
 
 
-class BpmnScriptExtractor:
-    """Main extractor for BPMN Groovy scripts across all IFLW files"""
+class IflwMessageMappingExtractor:
+    """Main extractor for IFLW message mappings across all IFLW files"""
     
     def __init__(self, iflw_files_dir: Path, output_dir: Path, timestamp: str = None):
         """
-        Initialize BPMN Script Extractor
+        Initialize IFLW Message Mapping Extractor
         
         Args:
             iflw_files_dir: Directory containing IFLW files
@@ -195,26 +217,24 @@ class BpmnScriptExtractor:
         # Track errors
         self.errors = []
         
-        logger.info("BpmnScriptExtractor initialized")
+        logger.info("IflwMessageMappingExtractor initialized")
         logger.info(f"  IFLW files: {self.iflw_files_dir}")
         logger.info(f"  Output: {self.output_dir}")
     
     def extract_all(self) -> Dict[str, Any]:
         """
-        Extract Groovy scripts from all IFLW files
+        Extract message mappings from all IFLW files
         
         Returns:
             Dictionary with extraction statistics
         """
-        logger.info("Starting BPMN Groovy script extraction...")
+        logger.info("Starting IFLW message mapping extraction...")
         
         stats = {
             "iflw_files_attempted": 0,
             "iflw_files_processed": 0,
             "iflw_files_failed": 0,
-            "total_scripts_extracted": 0,
-            "inline_scripts": 0,
-            "bundle_scripts": 0
+            "total_mappings_extracted": 0
         }
         
         # Check if IFLW directory exists
@@ -233,8 +253,8 @@ class BpmnScriptExtractor:
         
         logger.info(f"Found {len(iflw_files)} IFLW files to process")
         
-        # Collect all Groovy scripts
-        all_scripts = []
+        # Collect all message mappings
+        all_mappings = []
         
         # Process each IFLW file
         for idx, iflw_path in enumerate(iflw_files, 1):
@@ -250,30 +270,23 @@ class BpmnScriptExtractor:
                 tree = ET.parse(iflw_path)
                 root = tree.getroot()
                 
-                # Extract Groovy scripts
-                scripts = BpmnActivityScriptAnalyzer.analyze_groovy(
+                # Extract message mappings
+                mappings = IflwActivityMessageMappingAnalyzer.analyze(
                     root=root,
                     iflow_id=iflow_id,
                     package_id=package_id
                 )
                 
                 # Add to master list
-                all_scripts.extend(scripts)
+                all_mappings.extend(mappings)
                 
                 # Update statistics
-                stats["total_scripts_extracted"] += len(scripts)
-                
-                # Count inline vs bundle scripts
-                for script in scripts:
-                    if script.script:
-                        stats["inline_scripts"] += 1
-                    elif script.script_bundle_id:
-                        stats["bundle_scripts"] += 1
+                stats["total_mappings_extracted"] += len(mappings)
                 
                 stats["iflw_files_processed"] += 1
                 
-                if len(scripts) > 0:
-                    logger.debug(f"  Extracted {len(scripts)} Groovy scripts")
+                if len(mappings) > 0:
+                    logger.debug(f"  Extracted {len(mappings)} message mappings")
                 
             except Exception as e:
                 stats["iflw_files_failed"] += 1
@@ -281,16 +294,14 @@ class BpmnScriptExtractor:
                 self._track_error(iflw_path.name, "EXTRACTION_ERROR", str(e))
         
         # Save output
-        self._save_output(all_scripts)
+        self._save_output(all_mappings)
         
         # Save error log if there are errors
         if self.errors:
             self._save_error_log()
         
-        logger.info(f"BPMN Groovy script extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
-        logger.info(f"Total Groovy scripts extracted: {stats['total_scripts_extracted']}")
-        logger.info(f"  Inline scripts: {stats['inline_scripts']}")
-        logger.info(f"  Bundle scripts: {stats['bundle_scripts']}")
+        logger.info(f"IFLW message mapping extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
+        logger.info(f"Total message mappings extracted: {stats['total_mappings_extracted']}")
         
         return stats
     
@@ -309,16 +320,16 @@ class BpmnScriptExtractor:
         
         return package_id, iflow_id
     
-    def _save_output(self, scripts: List[BpmnActivityScript]):
-        """Save Groovy scripts to JSON file with camelCase keys"""
+    def _save_output(self, mappings: List[IflwActivityMessageMapping]):
+        """Save message mappings to JSON file with camelCase keys"""
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save scripts with camelCase keys
-        scripts_file = self.output_dir / "bpmn-groovy-scripts.json"
-        with open(scripts_file, 'w', encoding='utf-8') as f:
-            json.dump([s.to_camel_case_dict() for s in scripts], f, indent=4, ensure_ascii=False)
-        logger.info(f"Saved {len(scripts)} Groovy scripts to {scripts_file}")
+        # Save mappings with camelCase keys
+        mappings_file = self.output_dir / "iflw-message-mappings.json"
+        with open(mappings_file, 'w', encoding='utf-8') as f:
+            json.dump([m.to_camel_case_dict() for m in mappings], f, indent=4, ensure_ascii=False)
+        logger.info(f"Saved {len(mappings)} message mappings to {mappings_file}")
     
     def _track_error(self, iflw_name: str, error_type: str, error_message: str):
         """Track extraction error"""
@@ -331,7 +342,7 @@ class BpmnScriptExtractor:
     
     def _save_error_log(self):
         """Save error log to JSON file"""
-        output_file = self.output_dir / "bpmn-script-extraction-errors.json"
+        output_file = self.output_dir / "iflw-message-mapping-extraction-errors.json"
         
         output_data = {
             "errors": self.errors,
@@ -341,4 +352,4 @@ class BpmnScriptExtractor:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        logger.info(f"Saved script extraction error log: bpmn-script-extraction-errors.json")
+        logger.info(f"Saved message mapping extraction error log: iflw-message-mapping-extraction-errors.json")

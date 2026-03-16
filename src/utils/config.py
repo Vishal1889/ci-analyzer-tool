@@ -91,7 +91,7 @@ class Config:
             self.extract_script_collection_content = True
             self.extract_message_mapping_content = True
             self.extract_value_mapping_content = True
-            self.parse_bpmn_content = True
+            self.parse_iflw_content = True
         else:
             # For REPORT_ONLY mode, all downloads/parsing disabled
             self.download_runtime_artifacts = False
@@ -111,13 +111,16 @@ class Config:
             self.extract_script_collection_content = False
             self.extract_message_mapping_content = False
             self.extract_value_mapping_content = False
-            self.parse_bpmn_content = False
+            self.parse_iflw_content = False
         
         # Legacy flag support (with deprecation warnings)
         self._check_legacy_flags()
         
         # Additional Configuration
         self.max_artifact_size_mb = int(self._get_optional("MAX_ARTIFACT_SIZE_MB", "50"))
+
+        # Report Selection (applies to both FULL and REPORT_ONLY modes)
+        self.report_neo_to_cf = self._get_bool('REPORT_NEO_TO_CF', 'true')
         
         # Optional Discover Tenant Configuration
         self.discover_base_url = self._get_optional("DISCOVER_BASE_URL", "").strip()
@@ -144,7 +147,7 @@ class Config:
             'DOWNLOAD_PACKAGES': 'FULL mode downloads everything automatically',
             'DOWNLOAD_IFLOWS': 'FULL mode downloads everything automatically',
             'EXTRACT_IFLOW_CONTENT': 'FULL mode extracts everything automatically',
-            'PARSE_BPMN_CONTENT': 'FULL mode parses everything automatically',
+            'PARSE_IFLW_CONTENT': 'FULL mode parses everything automatically',
             'KEEP_RUNS': 'Removed - manage runs manually'
         }
         

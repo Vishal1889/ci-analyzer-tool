@@ -39,17 +39,18 @@ class DynamicDatabaseManager:
         'partner-directory-binary.json': 'partner_directory_binary_parameter',
         'environment-variable-check.json': 'environment_variable_check',
         'package-discover-versions.json': 'package_discover_version',
-        # BPMN tables
-        'bpmn-participants.json': 'bpmn_participant',
-        'bpmn-channels.json': 'bpmn_channel',
-        'bpmn-channels-properties.json': 'bpmn_channel_property',
-        'bpmn-activities.json': 'bpmn_activity',
-        'bpmn-activities-properties.json': 'bpmn_activity_property',
-        'bpmn-groovy-scripts.json': 'bpmn_groovy_script',
-        'bpmn-message-mappings.json': 'bpmn_message_mapping',
-        'bpmn-xslt-mappings.json': 'bpmn_xslt_mapping',
-        'bpmn-content-modifiers.json': 'bpmn_content_modifier',
-        'bpmn-timers.json': 'bpmn_timer'
+        'download-errors.json': 'download_error',
+        # IFLW tables
+        'iflw-participants.json': 'iflw_participant',
+        'iflw-channels.json': 'iflw_channel',
+        'iflw-channels-properties.json': 'iflw_channel_property',
+        'iflw-activities.json': 'iflw_activity',
+        'iflw-activities-properties.json': 'iflw_activity_property',
+        'iflw-groovy-scripts.json': 'iflw_groovy_script',
+        'iflw-message-mappings.json': 'iflw_message_mapping',
+        'iflw-xslt-mappings.json': 'iflw_xslt_mapping',
+        'iflw-content-modifiers.json': 'iflw_content_modifier',
+        'iflw-timers.json': 'iflw_timer'
     }
     
     # Fields to exclude from database (per table)
@@ -103,7 +104,7 @@ class DynamicDatabaseManager:
         
         Args:
             data: Parsed JSON data
-            origin: 'odata' or 'bpmn'
+            origin: 'odata' or 'iflw'
             
         Returns:
             List of row dictionaries
@@ -115,12 +116,12 @@ class DynamicDatabaseManager:
             else:
                 logger.warning(f"OData format not found, returning empty array")
                 return []
-        elif origin == 'bpmn':
-            # BPMN format: direct array [...]
+        elif origin == 'iflw':
+            # IFLW format: direct array [...]
             if isinstance(data, list):
                 return data
             else:
-                logger.warning(f"BPMN format not found (expected array), returning empty array")
+                logger.warning(f"IFLW format not found (expected array), returning empty array")
                 return []
         else:
             raise ValueError(f"Unknown origin: {origin}")
@@ -161,7 +162,7 @@ class DynamicDatabaseManager:
         
         Args:
             json_file: Path to JSON file
-            origin: 'odata' or 'bpmn'
+            origin: 'odata' or 'iflw'
             
         Returns:
             Table name created
@@ -215,7 +216,7 @@ class DynamicDatabaseManager:
         Args:
             table_name: Target table name
             json_file: Path to JSON file
-            origin: 'odata' or 'bpmn'
+            origin: 'odata' or 'iflw'
             progress_interval: Log progress every N rows
             
         Returns:
@@ -282,13 +283,13 @@ class DynamicDatabaseManager:
         
         return len(insert_data)
     
-    def create_tables_from_json_dirs(self, odata_dir: Path, bpmn_dir: Path):
+    def create_tables_from_json_dirs(self, odata_dir: Path, iflw_dir: Path):
         """
         Create all tables from JSON directories
         
         Args:
             odata_dir: Directory containing OData JSON files
-            bpmn_dir: Directory containing BPMN JSON files
+            iflw_dir: Directory containing IFLW JSON files
         """
         logger.info("Creating database schema from JSON files...")
         
@@ -309,30 +310,30 @@ class DynamicDatabaseManager:
         else:
             logger.warning(f"OData directory not found: {odata_dir}")
         
-        # Process BPMN files
-        bpmn_dir = Path(bpmn_dir)
-        if bpmn_dir.exists():
-            bpmn_files = sorted(bpmn_dir.glob('*.json'))
-            logger.info(f"  Processing {len(bpmn_files)} BPMN JSON files...")
-            
-            for json_file in bpmn_files:
+        # Process IFLW files
+        iflw_dir = Path(iflw_dir)
+        if iflw_dir.exists():
+            iflw_files = sorted(iflw_dir.glob('*.json'))
+            logger.info(f"  Processing {len(iflw_files)} IFLW JSON files...")
+
+            for json_file in iflw_files:
                 try:
-                    self.create_table(json_file, origin='bpmn')
+                    self.create_table(json_file, origin='iflw')
                     total_tables += 1
                 except Exception as e:
                     logger.error(f"  Failed to create table from {json_file.name}: {e}")
         else:
-            logger.warning(f"BPMN directory not found: {bpmn_dir}")
+            logger.warning(f"IFLW directory not found: {iflw_dir}")
         
         logger.info(f"Database schema created: {total_tables} tables")
     
-    def import_all_json_files(self, odata_dir: Path, bpmn_dir: Path):
+    def import_all_json_files(self, odata_dir: Path, iflw_dir: Path):
         """
         Import all JSON files to database
         
         Args:
             odata_dir: Directory containing OData JSON files
-            bpmn_dir: Directory containing BPMN JSON files
+            iflw_dir: Directory containing IFLW JSON files
         """
         logger.info("Importing JSON data to database...")
         
@@ -357,17 +358,17 @@ class DynamicDatabaseManager:
                 else:
                     logger.warning(f"  No table mapping for {json_file.name}, skipping")
         
-        # Import BPMN files
-        bpmn_dir = Path(bpmn_dir)
-        if bpmn_dir.exists():
-            bpmn_files = sorted(bpmn_dir.glob('*.json'))
-            logger.info(f"  Importing {len(bpmn_files)} BPMN JSON files...")
-            
-            for json_file in bpmn_files:
+        # Import IFLW files
+        iflw_dir = Path(iflw_dir)
+        if iflw_dir.exists():
+            iflw_files = sorted(iflw_dir.glob('*.json'))
+            logger.info(f"  Importing {len(iflw_files)} IFLW JSON files...")
+
+            for json_file in iflw_files:
                 table_name = self.TABLE_NAME_MAP.get(json_file.name)
                 if table_name:
                     try:
-                        rows_inserted = self.insert_from_json(table_name, json_file, origin='bpmn')
+                        rows_inserted = self.insert_from_json(table_name, json_file, origin='iflw')
                         total_rows += rows_inserted
                         total_files += 1
                     except Exception as e:

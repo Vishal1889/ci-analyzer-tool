@@ -1,5 +1,5 @@
 """
-BPMN Channel Extractor for SAP Cloud Integration Analyzer Tool
+IFLW Channel Extractor for SAP Cloud Integration Analyzer Tool
 Extracts communication channel (message flow) information from IFLW (BPMN XML) files
 Includes configuration resolution and property promotion
 """
@@ -14,7 +14,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# XML Namespaces for BPMN 2.0
+# XML Namespaces for IFLW (BPMN 2.0)
 NAMESPACES = {
     'bpmn2': 'http://www.omg.org/spec/BPMN/20100524/MODEL',
     'ifl': 'http:///com.sap.ifl.model/Ifl.xsd'
@@ -207,8 +207,8 @@ LOCATION_ID_KEYS = [
 
 
 @dataclass
-class BpmnChannel:
-    """Represents a BPMN channel (message flow) with promoted properties"""
+class IflwChannel:
+    """Represents an IFLW channel (message flow) with promoted properties"""
     # Basic identification
     id: str
     name: str
@@ -270,8 +270,8 @@ class BpmnChannel:
 
 
 @dataclass
-class BpmnChannelProperty:
-    """Represents a property of a BPMN channel"""
+class IflwChannelProperty:
+    """Represents a property of an IFLW channel"""
     package_id: str
     iflow_id: str
     participant_id: str
@@ -304,14 +304,14 @@ class PromotedValue:
     value: str
 
 
-class BpmnParticipantChannelAnalyzer:
-    """Analyzes BPMN XML to extract channel information for a participant"""
+class IflwParticipantChannelAnalyzer:
+    """Analyzes IFLW XML to extract channel information for a participant"""
     
     @staticmethod
     def analyze(root: ET.Element, participant_id: str, participant_name: str,
-                participant_type: str, iflow_id: str, package_id: str) -> Tuple[List[BpmnChannel], List[BpmnChannelProperty]]:
+                participant_type: str, iflow_id: str, package_id: str) -> Tuple[List[IflwChannel], List[IflwChannelProperty]]:
         """
-        Analyze BPMN XML to extract channels for a specific participant
+        Analyze IFLW XML to extract channels for a specific participant
         
         Args:
             root: XML root element
@@ -365,10 +365,10 @@ class BpmnParticipantChannelAnalyzer:
             channel_name = channel_xml.get('name', '')
             
             # Extract properties from extension elements
-            raw_props = BpmnParticipantChannelAnalyzer._extract_properties(channel_xml)
+            raw_props = IflwParticipantChannelAnalyzer._extract_properties(channel_xml)
             
             # Create channel object (without promoted fields yet)
-            channel = BpmnChannel(
+            channel = IflwChannel(
                 id=channel_id,
                 name=channel_name,
                 type=participant_type,  # Keep original type
@@ -381,7 +381,7 @@ class BpmnParticipantChannelAnalyzer:
             
             # Create property objects
             for key, value in raw_props.items():
-                prop = BpmnChannelProperty(
+                prop = IflwChannelProperty(
                     package_id=package_id,
                     iflow_id=iflow_id,
                     participant_id=participant_id,
@@ -429,11 +429,11 @@ class BpmnParticipantChannelAnalyzer:
         return props
 
 
-class BpmnParticipantChannelResolver:
+class IflwParticipantChannelResolver:
     """Resolves configuration placeholders and promotes common properties"""
     
     @staticmethod
-    def resolve_config_to_properties(properties: List[BpmnChannelProperty], 
+    def resolve_config_to_properties(properties: List[IflwChannelProperty],
                                      config: Dict[str, str]):
         """
         Resolve {{placeholder}} values in properties using configuration
@@ -449,7 +449,7 @@ class BpmnParticipantChannelResolver:
             config = {}
         
         for prop in properties:
-            prop.resolved_value = BpmnParticipantChannelResolver._resolve_one_pass(
+            prop.resolved_value = IflwParticipantChannelResolver._resolve_one_pass(
                 prop.raw_value, config
             )
     
@@ -505,8 +505,8 @@ class BpmnParticipantChannelResolver:
         return ''.join(result)
     
     @staticmethod
-    def promote_common_properties(channels: List[BpmnChannel],
-                                  properties: List[BpmnChannelProperty]):
+    def promote_common_properties(channels: List[IflwChannel],
+                                  properties: List[IflwChannelProperty]):
         """
         Promote common properties to channel-level fields
         
@@ -528,40 +528,40 @@ class BpmnParticipantChannelResolver:
                 continue
             
             # Promote simple fields (direct lookup)
-            channel.component_type = BpmnParticipantChannelResolver._find_value(props, "ComponentType")
-            channel.transport_protocol = BpmnParticipantChannelResolver._find_value(props, "TransportProtocol")
-            channel.message_protocol = BpmnParticipantChannelResolver._find_value(props, "MessageProtocol")
-            channel.message_protocol_version = BpmnParticipantChannelResolver._find_value(props, "MessageProtocolVersion")
-            channel.transport_protocol_version = BpmnParticipantChannelResolver._find_value(props, "TransportProtocolVersion")
-            channel.system = BpmnParticipantChannelResolver._find_value(props, "system")
+            channel.component_type = IflwParticipantChannelResolver._find_value(props, "ComponentType")
+            channel.transport_protocol = IflwParticipantChannelResolver._find_value(props, "TransportProtocol")
+            channel.message_protocol = IflwParticipantChannelResolver._find_value(props, "MessageProtocol")
+            channel.message_protocol_version = IflwParticipantChannelResolver._find_value(props, "MessageProtocolVersion")
+            channel.transport_protocol_version = IflwParticipantChannelResolver._find_value(props, "TransportProtocolVersion")
+            channel.system = IflwParticipantChannelResolver._find_value(props, "system")
             
             # Promote complex fields (with conditional logic and priority)
-            address_pv = BpmnParticipantChannelResolver._find_first_promoted(props, ADDRESS_KEYS)
+            address_pv = IflwParticipantChannelResolver._find_first_promoted(props, ADDRESS_KEYS)
             channel.address = address_pv.value if address_pv else None
             channel.address_key = address_pv.key if address_pv else None
             
-            resource_pv = BpmnParticipantChannelResolver._find_first_promoted(props, RESOURCE_KEYS)
+            resource_pv = IflwParticipantChannelResolver._find_first_promoted(props, RESOURCE_KEYS)
             channel.resource = resource_pv.value if resource_pv else None
             channel.resource_key = resource_pv.key if resource_pv else None
             
-            auth_method_pv = BpmnParticipantChannelResolver._find_first_promoted(props, AUTHENTICATION_METHOD_KEYS)
+            auth_method_pv = IflwParticipantChannelResolver._find_first_promoted(props, AUTHENTICATION_METHOD_KEYS)
             channel.authentication_method = auth_method_pv.value if auth_method_pv else None
             channel.authentication_method_key = auth_method_pv.key if auth_method_pv else None
             
-            credential_pv = BpmnParticipantChannelResolver._find_first_promoted(props, CREDENTIAL_NAME_KEYS)
+            credential_pv = IflwParticipantChannelResolver._find_first_promoted(props, CREDENTIAL_NAME_KEYS)
             channel.credential_name = credential_pv.value if credential_pv else None
             channel.credential_name_key = credential_pv.key if credential_pv else None
             
-            key_alias_pv = BpmnParticipantChannelResolver._find_first_promoted(props, KEY_ALIAS_KEYS)
+            key_alias_pv = IflwParticipantChannelResolver._find_first_promoted(props, KEY_ALIAS_KEYS)
             channel.key_alias = key_alias_pv.value if key_alias_pv else None
             channel.key_alias_key = key_alias_pv.key if key_alias_pv else None
             
-            location_pv = BpmnParticipantChannelResolver._find_first_promoted(props, LOCATION_ID_KEYS)
+            location_pv = IflwParticipantChannelResolver._find_first_promoted(props, LOCATION_ID_KEYS)
             channel.location_id = location_pv.value if location_pv else None
             channel.location_id_key = location_pv.key if location_pv else None
     
     @staticmethod
-    def _find_value(props: List[BpmnChannelProperty], key: str) -> Optional[str]:
+    def _find_value(props: List[IflwChannelProperty], key: str) -> Optional[str]:
         """Find property by exact key match"""
         prop = next((p for p in props if p.key == key), None)
         if not prop:
@@ -569,7 +569,7 @@ class BpmnParticipantChannelResolver:
         return prop.resolved_value or prop.raw_value
     
     @staticmethod
-    def _find_first_promoted(props: List[BpmnChannelProperty],
+    def _find_first_promoted(props: List[IflwChannelProperty],
                             keys_in_order: List[str]) -> Optional[PromotedValue]:
         """
         Find first matching property from priority list, handling conditional rules
@@ -631,17 +631,17 @@ class BpmnParticipantChannelResolver:
         return None
 
 
-class BpmnChannelExtractor:
-    """Main extractor for BPMN channels across all IFLW files"""
+class IflwChannelExtractor:
+    """Main extractor for IFLW channels across all IFLW files"""
     
     def __init__(self, iflw_files_dir: Path, participants_file: Path,
                  configurations_file: Path, output_dir: Path, timestamp: str = None):
         """
-        Initialize BPMN Channel Extractor
-        
+        Initialize IFLW Channel Extractor
+
         Args:
             iflw_files_dir: Directory containing IFLW files
-            participants_file: Path to bpmn-participants.json
+            participants_file: Path to iflw-participants.json
             configurations_file: Path to configurations.json
             output_dir: Directory for output JSON files
             timestamp: Optional timestamp for organized output
@@ -655,7 +655,7 @@ class BpmnChannelExtractor:
         # Track errors
         self.errors = []
         
-        logger.info("BpmnChannelExtractor initialized")
+        logger.info("IflwChannelExtractor initialized")
         logger.info(f"  IFLW files: {self.iflw_files_dir}")
         logger.info(f"  Participants: {self.participants_file}")
         logger.info(f"  Configurations: {self.configurations_file}")
@@ -668,7 +668,7 @@ class BpmnChannelExtractor:
         Returns:
             Dictionary with extraction statistics
         """
-        logger.info("Starting BPMN channel extraction...")
+        logger.info("Starting IFLW channel extraction...")
         
         stats = {
             "iflw_files_attempted": 0,
@@ -753,7 +753,7 @@ class BpmnChannelExtractor:
                 
                 # Extract channels for each participant
                 for participant in iflow_participants:
-                    channels, properties = BpmnParticipantChannelAnalyzer.analyze(
+                    channels, properties = IflwParticipantChannelAnalyzer.analyze(
                         root=root,
                         participant_id=participant['id'],
                         participant_name=participant['name'],
@@ -763,12 +763,12 @@ class BpmnChannelExtractor:
                     )
                     
                     # Resolve configurations
-                    BpmnParticipantChannelResolver.resolve_config_to_properties(
+                    IflwParticipantChannelResolver.resolve_config_to_properties(
                         properties, iflow_config
                     )
                     
                     # Promote common properties
-                    BpmnParticipantChannelResolver.promote_common_properties(
+                    IflwParticipantChannelResolver.promote_common_properties(
                         channels, properties
                     )
                     
@@ -802,7 +802,7 @@ class BpmnChannelExtractor:
         if self.errors:
             self._save_error_log()
         
-        logger.info(f"BPMN channel extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
+        logger.info(f"IFLW channel extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
         logger.info(f"Total channels extracted: {stats['total_channels_extracted']}")
         logger.info(f"Total properties extracted: {stats['total_properties_extracted']}")
         
@@ -872,19 +872,19 @@ class BpmnChannelExtractor:
         
         return package_id, iflow_id
     
-    def _save_output(self, channels: List[BpmnChannel], properties: List[BpmnChannelProperty]):
+    def _save_output(self, channels: List[IflwChannel], properties: List[IflwChannelProperty]):
         """Save channels and properties to JSON files with camelCase keys"""
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Save channels with camelCase keys
-        channels_file = self.output_dir / "bpmn-channels.json"
+        channels_file = self.output_dir / "iflw-channels.json"
         with open(channels_file, 'w', encoding='utf-8') as f:
             json.dump([c.to_camel_case_dict() for c in channels], f, indent=4, ensure_ascii=False)
         logger.info(f"Saved {len(channels)} channels to {channels_file}")
         
         # Save properties with camelCase keys
-        properties_file = self.output_dir / "bpmn-channels-properties.json"
+        properties_file = self.output_dir / "iflw-channels-properties.json"
         with open(properties_file, 'w', encoding='utf-8') as f:
             json.dump([p.to_camel_case_dict() for p in properties], f, indent=4, ensure_ascii=False)
         logger.info(f"Saved {len(properties)} properties to {properties_file}")
@@ -900,7 +900,7 @@ class BpmnChannelExtractor:
     
     def _save_error_log(self):
         """Save error log to JSON file"""
-        output_file = self.output_dir / "bpmn-channel-extraction-errors.json"
+        output_file = self.output_dir / "iflw-channel-extraction-errors.json"
         
         output_data = {
             "errors": self.errors,
@@ -910,4 +910,4 @@ class BpmnChannelExtractor:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        logger.info(f"Saved extraction error log: bpmn-channel-extraction-errors.json")
+        logger.info(f"Saved extraction error log: iflw-channel-extraction-errors.json")

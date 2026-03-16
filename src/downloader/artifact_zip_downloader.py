@@ -849,8 +849,10 @@ class ArtifactZipDownloader:
         self.errors.append(error_record)
     
     def _save_error_log(self):
-        """Save error log to JSON file"""
-        output_file = self.download_dir / "download-errors.json"
+        """Save error log to JSON file (in json-files/ so it gets imported to DB)"""
+        json_files_dir = self.download_dir / "json-files"
+        json_files_dir.mkdir(parents=True, exist_ok=True)
+        output_file = json_files_dir / "download-errors.json"
         
         output_data = {
             "d": {

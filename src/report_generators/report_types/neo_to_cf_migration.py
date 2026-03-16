@@ -12,6 +12,10 @@ logger = get_logger(__name__)
 
 class NeoToCFMigrationReport(BaseReport):
     """Generates NEO to CF migration assessment report"""
+
+    def __init__(self, db_path, tenant_id: str, captured_at: str, subaccount_type: str = 'CF'):
+        super().__init__(db_path, tenant_id, captured_at)
+        self.subaccount_type = subaccount_type
     
     def get_report_name(self) -> str:
         return "neo_to_cf_migration_assessment"
@@ -31,9 +35,15 @@ class NeoToCFMigrationReport(BaseReport):
         versions = self._generate_version_deployment()
         systems = self._generate_systems_adapters()
         env_vars = self._generate_environment_variables()
-        cert_mappings = self._generate_certificate_mappings()
         keystore = self._generate_keystore_view()
-        
+        download_errors = self._generate_download_errors()
+
+        # Certificate mappings only exist on NEO subaccounts
+        if self.subaccount_type == 'NEO':
+            cert_mappings = self._generate_certificate_mappings()
+        else:
+            cert_mappings = {'mappings': [], 'stats': {}, 'available': False, 'skipped_cf': True}
+
         self.report_data = {
             'metadata': metadata,
             'dashboard': dashboard,
@@ -44,6 +54,7 @@ class NeoToCFMigrationReport(BaseReport):
             'environment_variables': env_vars,
             'certificate_mappings': cert_mappings,
             'keystore': keystore,
+            'download_errors': download_errors,
         }
         
         logger.info(f"  Generated migration assessment with {len(self.report_data)} sections")
@@ -56,7 +67,8 @@ class NeoToCFMigrationReport(BaseReport):
             'tenant_id': self.tenant_id,
             'captured_at': self.captured_at,
             'report_generated_at': self.format_date(self.captured_at),
-            'report_version': '1.0'
+            'report_version': '1.0',
+            'subaccount_type': self.subaccount_type
         }
     
     def _generate_dashboard(self) -> Dict[str, Any]:
@@ -97,7 +109,7 @@ class NeoToCFMigrationReport(BaseReport):
             (self.tenant_id,)
         ) or 0
         
-        # Get unique systems count from bpmn_channel table (table may not exist if BPMN parsing disabled)
+        # Get unique systems count from iflw_channel table (table may not exist if IFLW parsing disabled)
         # Counts distinct (system, address) PAIRS — identical logic to the Systems & Adapters tab.
         # Excludes ProcessDirect (internal IFlow-to-IFlow routing, not an external system).
         systems_count = 0
@@ -108,7 +120,7 @@ class NeoToCFMigrationReport(BaseReport):
                 SELECT DISTINCT
                     COALESCE(system, 'Unknown') as system_name,
                     COALESCE(address, 'N/A') as address_url
-                FROM bpmn_channel
+                FROM iflw_channel
                 WHERE tenant_id = ?
                 AND (address IS NOT NULL OR system IS NOT NULL)
                 AND TRIM(COALESCE(address, system, '')) != ''
@@ -117,7 +129,7 @@ class NeoToCFMigrationReport(BaseReport):
             """
             systems_count = self.execute_scalar(systems_query, (self.tenant_id,)) or 0
         except Exception:
-            logger.debug("  bpmn_channel table not available — systems count set to 0")
+            logger.debug("  iflw_channel table not available — systems count set to 0")
         
         total_artifacts = iflow_count + script_count + msg_map_count + val_map_count
         
@@ -773,18 +785,18 @@ class NeoToCFMigrationReport(BaseReport):
     def _generate_systems_adapters(self) -> Dict[str, Any]:
         """Generate systems and adapter analysis"""
 
-        # Check bpmn_channel table exists first
+        # Check iflw_channel table exists first
         try:
-            self.execute_scalar("SELECT COUNT(*) FROM bpmn_channel WHERE tenant_id = ?", (self.tenant_id,))
+            self.execute_scalar("SELECT COUNT(*) FROM iflw_channel WHERE tenant_id = ?", (self.tenant_id,))
         except Exception:
-            logger.info("  bpmn_channel table not available — skipping systems/adapters section")
+            logger.info("  iflw_channel table not available — skipping systems/adapters section")
             return {
                 'systems': [],
                 'adapters': [],
                 'stats': {'unique_systems': 0, 'total_adapters': 0, 'adapter_types': 0}
             }
 
-        # Unique systems with adapter details from bpmn_channel table
+        # Unique systems with adapter details from iflw_channel table
         # Excludes ProcessDirect (internal routing) and separates system name from URL
         # Joins iflow table to get human-readable iflow names for drill-down
         systems_query = """
@@ -795,7 +807,7 @@ class NeoToCFMigrationReport(BaseReport):
             REPLACE(REPLACE(bc.type, 'Endpoint', ''), 'endpoint', '') as direction,
             COUNT(DISTINCT bc.iflowId) as iflow_count,
             GROUP_CONCAT(DISTINCT COALESCE(i.Name, bc.iflowId) || '|||' || COALESCE(p.Name, 'Unknown Package')) as iflow_names
-        FROM bpmn_channel bc
+        FROM iflw_channel bc
         LEFT JOIN iflow i ON bc.iflowId = i.Id AND bc.tenant_id = i.tenant_id
         LEFT JOIN package p ON i.PackageId = p.Id AND i.tenant_id = p.tenant_id
         WHERE bc.tenant_id = ?
@@ -814,7 +826,7 @@ class NeoToCFMigrationReport(BaseReport):
             SUM(CASE WHEN type LIKE '%Sender%' THEN 1 ELSE 0 END) as sender_count,
             SUM(CASE WHEN type LIKE '%Receiver%' THEN 1 ELSE 0 END) as receiver_count,
             COUNT(*) as total_count
-        FROM bpmn_channel
+        FROM iflw_channel
         WHERE tenant_id = ?
         AND componentType IS NOT NULL
         GROUP BY componentType
@@ -829,7 +841,7 @@ class NeoToCFMigrationReport(BaseReport):
             bc.type as channel_type,
             COALESCE(i.Name, bc.iflowId) as iflow_name,
             COALESCE(p.Name, bc.packageId) as package_name
-        FROM bpmn_channel bc
+        FROM iflw_channel bc
         LEFT JOIN iflow i ON bc.iflowId = i.Id AND bc.tenant_id = i.tenant_id
         LEFT JOIN package p ON bc.packageId = p.Id AND bc.tenant_id = p.tenant_id
         WHERE bc.tenant_id = ?
@@ -1187,7 +1199,54 @@ class NeoToCFMigrationReport(BaseReport):
                 return part[3:]  # Remove 'CN=' prefix
         
         return dn  # Return full DN if CN not found
-    
+
+    def _generate_download_errors(self) -> Dict[str, Any]:
+        """Generate download errors summary from download_error table"""
+        try:
+            self.execute_scalar(
+                "SELECT COUNT(*) FROM download_error WHERE tenant_id = ?",
+                (self.tenant_id,)
+            )
+        except Exception:
+            logger.info("  download_error table not available — no error data to display")
+            return {'errors': [], 'stats': {}, 'available': False}
+
+        errors_query = """
+        SELECT
+            PackageID as package_id,
+            Type as artifact_type,
+            ErrorCode as error_code,
+            ErrorType as error_type,
+            ErrorMessage as error_message,
+            Timestamp as timestamp,
+            DownloadAttempted as download_path
+        FROM download_error
+        WHERE tenant_id = ?
+        ORDER BY Timestamp DESC
+        """
+        errors = self.execute_query(errors_query, (self.tenant_id,))
+
+        if not errors:
+            return {'errors': [], 'stats': {}, 'available': True}
+
+        # Build stats
+        by_type = {}
+        by_error_type = {}
+        for e in errors:
+            at = e.get('artifact_type', 'Unknown')
+            et = e.get('error_type', 'Unknown')
+            by_type[at] = by_type.get(at, 0) + 1
+            by_error_type[et] = by_error_type.get(et, 0) + 1
+
+        stats = {
+            'total_errors': len(errors),
+            'by_artifact_type': by_type,
+            'by_error_type': by_error_type,
+        }
+
+        logger.info(f"  Found {len(errors)} download errors")
+        return {'errors': errors, 'stats': stats, 'available': True}
+
     def get_summary_metrics(self) -> Dict[str, Any]:
         """Get summary metrics for dashboard"""
         if not self.report_data:

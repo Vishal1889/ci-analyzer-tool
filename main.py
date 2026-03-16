@@ -137,14 +137,26 @@ def main():
         logger.info(f"Run timestamp: {run_timestamp}")
         logger.info(f"Run directory: {config.get_run_dir(run_timestamp)}")
         
-        # Note: Database initialization moved to after BPMN extraction (PHASE 2)
+        # Note: Database initialization moved to after IFLW extraction (PHASE 2)
         
         # Skip authentication and download setup in REPORT_ONLY mode
         if config.execution_mode == "REPORT_ONLY":
             logger.info("=" * 70)
             logger.info("REPORT_ONLY MODE - Generating reports only")
             logger.info("=" * 70)
+
+            # Check that at least one report is selected
+            selected_reports = [name for name, enabled in [
+                ('NEO to CF Migration Assessment', config.report_neo_to_cf),
+            ] if enabled]
+
+            if not selected_reports:
+                logger.error("No reports selected! Enable at least one report in the Report Selection configuration.")
+                print("\n[ERROR] No reports selected. Enable at least one report type in configuration.")
+                return 1
+
             logger.info(f"Using database: {config.report_db_path}")
+            logger.info(f"Reports to generate: {', '.join(selected_reports)}")
             logger.info("")
 
             # Generate reports from existing database
@@ -167,25 +179,31 @@ def main():
                 captured_at = datetime.now().isoformat()
                 
                 # NEO to CF Migration Assessment (HTML only, no JSON)
-                try:
-                    report = NeoToCFMigrationReport(db_path, config.tenant_id, captured_at)
-                    data = report.generate()
-                    
-                    # Generate HTML report with tenant and timestamp in filename
-                    html_formatter = NeoToCFFormatter(report.get_report_title(), config.tenant_id, captured_at)
-                    timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    html_file = reports_dir / f"{report.get_report_name()}_{config.tenant_id}_{timestamp_str}.html"
-                    html_formatter.generate_html(data, html_file)
-                    
-                    reports_generated.append(report.get_report_name())
-                    logger.info(f"✓ Generated {report.get_report_title()}")
-                    logger.info(f"  HTML: {html_file}")
-                except Exception as e:
-                    logger.warning(f"Could not generate NEO to CF Migration Assessment: {e}")
+                if config.report_neo_to_cf:
+                    try:
+                        report = NeoToCFMigrationReport(db_path, config.tenant_id, captured_at, config.subaccount_type)
+                        data = report.generate()
+
+                        # Generate HTML report with tenant and timestamp in filename
+                        html_formatter = NeoToCFFormatter(report.get_report_title(), config.tenant_id, captured_at)
+                        timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        html_file = reports_dir / f"{report.get_report_name()}_{config.tenant_id}_{timestamp_str}.html"
+                        html_formatter.generate_html(data, html_file)
+
+                        reports_generated.append(report.get_report_name())
+                        logger.info(f"✓ Generated {report.get_report_title()}")
+                        logger.info(f"  HTML: {html_file}")
+                    except Exception as e:
+                        logger.warning(f"Could not generate NEO to CF Migration Assessment: {e}")
+                else:
+                    logger.info("  Skipped: NEO to CF Migration Assessment (not selected)")
                 
                 logger.info("")
                 logger.info("=" * 70)
-                logger.info(f"Report generation completed! ({len(reports_generated)} reports)")
+                if reports_generated:
+                    logger.info(f"Report generation completed! ({len(reports_generated)} reports)")
+                else:
+                    logger.warning("No reports were generated — check Report Selection in configuration")
                 logger.info("=" * 70)
                 logger.info("")
                 logger.info("Note: HTML/Excel output formatting not yet implemented")
@@ -768,23 +786,23 @@ def main():
                 logger.info("")
                 logger.info("Artifact content extraction disabled (all extractors set to false)")
             
-            # PHASE 1.9.1: EXTRACT BPMN PARTICIPANTS
-            if config.parse_bpmn_content and config.extract_iflow_content:
+            # PHASE 1.9.1: EXTRACT IFLW PARTICIPANTS
+            if config.parse_iflw_content and config.extract_iflow_content:
                 logger.info("")
                 logger.info("=" * 70)
-                logger.info("PHASE 1.9.1: EXTRACTING BPMN PARTICIPANTS")
+                logger.info("PHASE 1.9.1: EXTRACTING IFLW PARTICIPANTS")
                 logger.info("=" * 70)
                 logger.info("")
                 logger.info("Extracting participant information from IFLW files...")
                 logger.info("-" * 70)
                 
                 try:
-                    from analysers.bpmn_participant_extractor import BpmnParticipantExtractor
+                    from analysers.iflw_participant_extractor import IflwParticipantExtractor
                     
                     iflw_dir = Path(download_path) / "iflows" / "iflw-files"
-                    output_dir = Path(download_path) / "iflows" / "bpmn-json-files"
+                    output_dir = Path(download_path) / "iflows" / "iflw-json-files"
                     
-                    extractor = BpmnParticipantExtractor(
+                    extractor = IflwParticipantExtractor(
                         iflw_files_dir=iflw_dir,
                         output_dir=output_dir,
                         timestamp=run_timestamp
@@ -793,7 +811,7 @@ def main():
                     participant_stats = extractor.extract_all()
                     
                     logger.info("")
-                    logger.info("BPMN participant extraction summary:")
+                    logger.info("IFLW participant extraction summary:")
                     logger.info(f"  IFLW files processed: {participant_stats['iflw_files_processed']}/{participant_stats['iflw_files_attempted']}")
                     logger.info(f"  Total participants extracted: {participant_stats['total_participants_extracted']}")
                     logger.info(f"  Participants by type:")
@@ -804,42 +822,42 @@ def main():
                     
                     if participant_stats['iflw_files_failed'] > 0:
                         logger.warning(f"  Failed to process {participant_stats['iflw_files_failed']} IFLW files")
-                        logger.warning("  Check bpmn-participant-extraction-errors.json for details")
+                        logger.warning("  Check iflw-participant-extraction-errors.json for details")
                     
                     logger.info("")
                     logger.info("=" * 70)
-                    logger.info("BPMN participant extraction completed!")
+                    logger.info("IFLW participant extraction completed!")
                     logger.info("=" * 70)
                     
                 except Exception as e:
-                    logger.error(f"BPMN participant extraction failed: {e}")
-                    logger.warning("Continuing without BPMN participant extraction...")
-            elif not config.parse_bpmn_content:
+                    logger.error(f"IFLW participant extraction failed: {e}")
+                    logger.warning("Continuing without IFLW participant extraction...")
+            elif not config.parse_iflw_content:
                 logger.info("")
-                logger.info("BPMN analysis disabled (PARSE_BPMN_CONTENT=false)")
+                logger.info("IFLW analysis disabled (PARSE_IFLW_CONTENT=false)")
             else:
                 logger.info("")
-                logger.info("Skipping BPMN participant extraction (IFlow content not extracted)")
+                logger.info("Skipping IFLW participant extraction (IFlow content not extracted)")
             
-            # PHASE 1.9.2: EXTRACT BPMN CHANNELS
-            if config.parse_bpmn_content and config.extract_iflow_content:
+            # PHASE 1.9.2: EXTRACT IFLW CHANNELS
+            if config.parse_iflw_content and config.extract_iflow_content:
                 logger.info("")
                 logger.info("=" * 70)
-                logger.info("PHASE 1.9.2: EXTRACTING BPMN CHANNELS")
+                logger.info("PHASE 1.9.2: EXTRACTING IFLW CHANNELS")
                 logger.info("=" * 70)
                 logger.info("")
                 logger.info("Extracting communication channels from IFLW files...")
                 logger.info("-" * 70)
                 
                 try:
-                    from analysers.bpmn_channel_extractor import BpmnChannelExtractor
+                    from analysers.iflw_channel_extractor import IflwChannelExtractor
                     
                     iflw_dir = Path(download_path) / "iflows" / "iflw-files"
-                    participants_file = Path(download_path) / "iflows" / "bpmn-json-files" / "bpmn-participants.json"
+                    participants_file = Path(download_path) / "iflows" / "iflw-json-files" / "iflw-participants.json"
                     configurations_file = Path(download_path) / "json-files" / "configurations.json"
-                    output_dir = Path(download_path) / "iflows" / "bpmn-json-files"
+                    output_dir = Path(download_path) / "iflows" / "iflw-json-files"
                     
-                    extractor = BpmnChannelExtractor(
+                    extractor = IflwChannelExtractor(
                         iflw_files_dir=iflw_dir,
                         participants_file=participants_file,
                         configurations_file=configurations_file,
@@ -850,7 +868,7 @@ def main():
                     channel_stats = extractor.extract_all()
                     
                     logger.info("")
-                    logger.info("BPMN channel extraction summary:")
+                    logger.info("IFLW channel extraction summary:")
                     logger.info(f"  IFLW files processed: {channel_stats['iflw_files_processed']}/{channel_stats['iflw_files_attempted']}")
                     logger.info(f"  Total channels extracted: {channel_stats['total_channels_extracted']}")
                     logger.info(f"  Total properties extracted: {channel_stats['total_properties_extracted']}")
@@ -860,41 +878,41 @@ def main():
                     
                     if channel_stats['iflw_files_failed'] > 0:
                         logger.warning(f"  Failed to process {channel_stats['iflw_files_failed']} IFLW files")
-                        logger.warning("  Check bpmn-channel-extraction-errors.json for details")
+                        logger.warning("  Check iflw-channel-extraction-errors.json for details")
                     
                     logger.info("")
                     logger.info("=" * 70)
-                    logger.info("BPMN channel extraction completed!")
+                    logger.info("IFLW channel extraction completed!")
                     logger.info("=" * 70)
                     
                 except Exception as e:
-                    logger.error(f"BPMN channel extraction failed: {e}")
-                    logger.warning("Continuing without BPMN channel extraction...")
-            elif not config.parse_bpmn_content:
+                    logger.error(f"IFLW channel extraction failed: {e}")
+                    logger.warning("Continuing without IFLW channel extraction...")
+            elif not config.parse_iflw_content:
                 logger.info("")
-                logger.info("BPMN analysis disabled (PARSE_BPMN_CONTENT=false)")
+                logger.info("IFLW analysis disabled (PARSE_IFLW_CONTENT=false)")
             else:
                 logger.info("")
-                logger.info("Skipping BPMN channel extraction (IFlow content not extracted)")
+                logger.info("Skipping IFLW channel extraction (IFlow content not extracted)")
             
-            # PHASE 1.9.3: EXTRACT BPMN ACTIVITIES
-            if config.parse_bpmn_content and config.extract_iflow_content:
+            # PHASE 1.9.3: EXTRACT IFLW ACTIVITIES
+            if config.parse_iflw_content and config.extract_iflow_content:
                 logger.info("")
                 logger.info("=" * 70)
-                logger.info("PHASE 1.9.3: EXTRACTING BPMN ACTIVITIES")
+                logger.info("PHASE 1.9.3: EXTRACTING IFLW ACTIVITIES")
                 logger.info("=" * 70)
                 logger.info("")
                 logger.info("Extracting process activities from IFLW files...")
                 logger.info("-" * 70)
                 
                 try:
-                    from analysers.bpmn_activity_extractor import BpmnActivityExtractor
+                    from analysers.iflw_activity_extractor import IflwActivityExtractor
                     
                     iflw_dir = Path(download_path) / "iflows" / "iflw-files"
                     configurations_file = Path(download_path) / "json-files" / "configurations.json"
-                    output_dir = Path(download_path) / "iflows" / "bpmn-json-files"
+                    output_dir = Path(download_path) / "iflows" / "iflw-json-files"
                     
-                    extractor = BpmnActivityExtractor(
+                    extractor = IflwActivityExtractor(
                         iflw_files_dir=iflw_dir,
                         configurations_file=configurations_file,
                         output_dir=output_dir,
@@ -904,7 +922,7 @@ def main():
                     activity_stats = extractor.extract_all()
                     
                     logger.info("")
-                    logger.info("BPMN activity extraction summary:")
+                    logger.info("IFLW activity extraction summary:")
                     logger.info(f"  IFLW files processed: {activity_stats['iflw_files_processed']}/{activity_stats['iflw_files_attempted']}")
                     logger.info(f"  Total activities extracted: {activity_stats['total_activities_extracted']}")
                     logger.info(f"  Total properties extracted: {activity_stats['total_properties_extracted']}")
@@ -918,25 +936,25 @@ def main():
                     
                     if activity_stats['iflw_files_failed'] > 0:
                         logger.warning(f"  Failed to process {activity_stats['iflw_files_failed']} IFLW files")
-                        logger.warning("  Check bpmn-activity-extraction-errors.json for details")
+                        logger.warning("  Check iflw-activity-extraction-errors.json for details")
                     
                     logger.info("")
                     logger.info("=" * 70)
-                    logger.info("BPMN activity extraction completed!")
+                    logger.info("IFLW activity extraction completed!")
                     logger.info("=" * 70)
                     
                 except Exception as e:
-                    logger.error(f"BPMN activity extraction failed: {e}")
-                    logger.warning("Continuing without BPMN activity extraction...")
-            elif not config.parse_bpmn_content:
+                    logger.error(f"IFLW activity extraction failed: {e}")
+                    logger.warning("Continuing without IFLW activity extraction...")
+            elif not config.parse_iflw_content:
                 logger.info("")
-                logger.info("BPMN activity analysis disabled (PARSE_BPMN_CONTENT=false)")
+                logger.info("IFLW activity analysis disabled (PARSE_IFLW_CONTENT=false)")
             else:
                 logger.info("")
-                logger.info("Skipping BPMN activity extraction (IFlow content not extracted)")
+                logger.info("Skipping IFLW activity extraction (IFlow content not extracted)")
             
             # PHASE 1.9.4: EXTRACT GROOVY SCRIPTS
-            if config.parse_bpmn_content and config.extract_iflow_content:
+            if config.parse_iflw_content and config.extract_iflow_content:
                 logger.info("")
                 logger.info("=" * 70)
                 logger.info("PHASE 1.9.4: EXTRACTING GROOVY SCRIPTS")
@@ -946,12 +964,12 @@ def main():
                 logger.info("-" * 70)
                 
                 try:
-                    from analysers.bpmn_script_extractor import BpmnScriptExtractor
+                    from analysers.iflw_script_extractor import IflwScriptExtractor
                     
                     iflw_dir = Path(download_path) / "iflows" / "iflw-files"
-                    output_dir = Path(download_path) / "iflows" / "bpmn-json-files"
+                    output_dir = Path(download_path) / "iflows" / "iflw-json-files"
                     
-                    extractor = BpmnScriptExtractor(
+                    extractor = IflwScriptExtractor(
                         iflw_files_dir=iflw_dir,
                         output_dir=output_dir,
                         timestamp=run_timestamp
@@ -960,7 +978,7 @@ def main():
                     script_stats = extractor.extract_all()
                     
                     logger.info("")
-                    logger.info("BPMN Groovy script extraction summary:")
+                    logger.info("IFLW Groovy script extraction summary:")
                     logger.info(f"  IFLW files processed: {script_stats['iflw_files_processed']}/{script_stats['iflw_files_attempted']}")
                     logger.info(f"  Total Groovy scripts extracted: {script_stats['total_scripts_extracted']}")
                     logger.info(f"    Inline scripts: {script_stats['inline_scripts']}")
@@ -968,25 +986,25 @@ def main():
                     
                     if script_stats['iflw_files_failed'] > 0:
                         logger.warning(f"  Failed to process {script_stats['iflw_files_failed']} IFLW files")
-                        logger.warning("  Check bpmn-script-extraction-errors.json for details")
+                        logger.warning("  Check iflw-script-extraction-errors.json for details")
                     
                     logger.info("")
                     logger.info("=" * 70)
-                    logger.info("BPMN Groovy script extraction completed!")
+                    logger.info("IFLW Groovy script extraction completed!")
                     logger.info("=" * 70)
                     
                 except Exception as e:
-                    logger.error(f"BPMN Groovy script extraction failed: {e}")
-                    logger.warning("Continuing without BPMN Groovy script extraction...")
-            elif not config.parse_bpmn_content:
+                    logger.error(f"IFLW Groovy script extraction failed: {e}")
+                    logger.warning("Continuing without IFLW Groovy script extraction...")
+            elif not config.parse_iflw_content:
                 logger.info("")
-                logger.info("BPMN script analysis disabled (PARSE_BPMN_CONTENT=false)")
+                logger.info("IFLW script analysis disabled (PARSE_IFLW_CONTENT=false)")
             else:
                 logger.info("")
-                logger.info("Skipping BPMN Groovy script extraction (IFlow content not extracted)")
+                logger.info("Skipping IFLW Groovy script extraction (IFlow content not extracted)")
             
             # PHASE 1.9.5: EXTRACT MESSAGE MAPPINGS
-            if config.parse_bpmn_content and config.extract_iflow_content:
+            if config.parse_iflw_content and config.extract_iflow_content:
                 logger.info("")
                 logger.info("=" * 70)
                 logger.info("PHASE 1.9.5: EXTRACTING MESSAGE MAPPINGS")
@@ -996,12 +1014,12 @@ def main():
                 logger.info("-" * 70)
                 
                 try:
-                    from analysers.bpmn_message_mapping_extractor import BpmnMessageMappingExtractor
+                    from analysers.iflw_message_mapping_extractor import IflwMessageMappingExtractor
                     
                     iflw_dir = Path(download_path) / "iflows" / "iflw-files"
-                    output_dir = Path(download_path) / "iflows" / "bpmn-json-files"
+                    output_dir = Path(download_path) / "iflows" / "iflw-json-files"
                     
-                    extractor = BpmnMessageMappingExtractor(
+                    extractor = IflwMessageMappingExtractor(
                         iflw_files_dir=iflw_dir,
                         output_dir=output_dir,
                         timestamp=run_timestamp
@@ -1010,31 +1028,31 @@ def main():
                     mapping_stats = extractor.extract_all()
                     
                     logger.info("")
-                    logger.info("BPMN message mapping extraction summary:")
+                    logger.info("IFLW message mapping extraction summary:")
                     logger.info(f"  IFLW files processed: {mapping_stats['iflw_files_processed']}/{mapping_stats['iflw_files_attempted']}")
                     logger.info(f"  Total message mappings extracted: {mapping_stats['total_mappings_extracted']}")
                     
                     if mapping_stats['iflw_files_failed'] > 0:
                         logger.warning(f"  Failed to process {mapping_stats['iflw_files_failed']} IFLW files")
-                        logger.warning("  Check bpmn-message-mapping-extraction-errors.json for details")
+                        logger.warning("  Check iflw-message-mapping-extraction-errors.json for details")
                     
                     logger.info("")
                     logger.info("=" * 70)
-                    logger.info("BPMN message mapping extraction completed!")
+                    logger.info("IFLW message mapping extraction completed!")
                     logger.info("=" * 70)
                     
                 except Exception as e:
-                    logger.error(f"BPMN message mapping extraction failed: {e}")
-                    logger.warning("Continuing without BPMN message mapping extraction...")
-            elif not config.parse_bpmn_content:
+                    logger.error(f"IFLW message mapping extraction failed: {e}")
+                    logger.warning("Continuing without IFLW message mapping extraction...")
+            elif not config.parse_iflw_content:
                 logger.info("")
-                logger.info("BPMN message mapping analysis disabled (PARSE_BPMN_CONTENT=false)")
+                logger.info("IFLW message mapping analysis disabled (PARSE_IFLW_CONTENT=false)")
             else:
                 logger.info("")
-                logger.info("Skipping BPMN message mapping extraction (IFlow content not extracted)")
+                logger.info("Skipping IFLW message mapping extraction (IFlow content not extracted)")
             
             # PHASE 1.9.6: EXTRACT XSLT MAPPINGS
-            if config.parse_bpmn_content and config.extract_iflow_content:
+            if config.parse_iflw_content and config.extract_iflow_content:
                 logger.info("")
                 logger.info("=" * 70)
                 logger.info("PHASE 1.9.6: EXTRACTING XSLT MAPPINGS")
@@ -1044,12 +1062,12 @@ def main():
                 logger.info("-" * 70)
                 
                 try:
-                    from analysers.bpmn_xslt_mapping_extractor import BpmnXSLTMappingExtractor
+                    from analysers.iflw_xslt_mapping_extractor import IflwXSLTMappingExtractor
                     
                     iflw_dir = Path(download_path) / "iflows" / "iflw-files"
-                    output_dir = Path(download_path) / "iflows" / "bpmn-json-files"
+                    output_dir = Path(download_path) / "iflows" / "iflw-json-files"
                     
-                    extractor = BpmnXSLTMappingExtractor(
+                    extractor = IflwXSLTMappingExtractor(
                         iflw_files_dir=iflw_dir,
                         output_dir=output_dir,
                         timestamp=run_timestamp
@@ -1058,31 +1076,31 @@ def main():
                     xslt_stats = extractor.extract_all()
                     
                     logger.info("")
-                    logger.info("BPMN XSLT mapping extraction summary:")
+                    logger.info("IFLW XSLT mapping extraction summary:")
                     logger.info(f"  IFLW files processed: {xslt_stats['iflw_files_processed']}/{xslt_stats['iflw_files_attempted']}")
                     logger.info(f"  Total XSLT mappings extracted: {xslt_stats['total_mappings_extracted']}")
                     
                     if xslt_stats['iflw_files_failed'] > 0:
                         logger.warning(f"  Failed to process {xslt_stats['iflw_files_failed']} IFLW files")
-                        logger.warning("  Check bpmn-xslt-mapping-extraction-errors.json for details")
+                        logger.warning("  Check iflw-xslt-mapping-extraction-errors.json for details")
                     
                     logger.info("")
                     logger.info("=" * 70)
-                    logger.info("BPMN XSLT mapping extraction completed!")
+                    logger.info("IFLW XSLT mapping extraction completed!")
                     logger.info("=" * 70)
                     
                 except Exception as e:
-                    logger.error(f"BPMN XSLT mapping extraction failed: {e}")
-                    logger.warning("Continuing without BPMN XSLT mapping extraction...")
-            elif not config.parse_bpmn_content:
+                    logger.error(f"IFLW XSLT mapping extraction failed: {e}")
+                    logger.warning("Continuing without IFLW XSLT mapping extraction...")
+            elif not config.parse_iflw_content:
                 logger.info("")
-                logger.info("BPMN XSLT mapping analysis disabled (PARSE_BPMN_CONTENT=false)")
+                logger.info("IFLW XSLT mapping analysis disabled (PARSE_IFLW_CONTENT=false)")
             else:
                 logger.info("")
-                logger.info("Skipping BPMN XSLT mapping extraction (IFlow content not extracted)")
+                logger.info("Skipping IFLW XSLT mapping extraction (IFlow content not extracted)")
             
             # PHASE 1.9.7: EXTRACT CONTENT MODIFIERS
-            if config.parse_bpmn_content and config.extract_iflow_content:
+            if config.parse_iflw_content and config.extract_iflow_content:
                 logger.info("")
                 logger.info("=" * 70)
                 logger.info("PHASE 1.9.7: EXTRACTING CONTENT MODIFIERS")
@@ -1092,10 +1110,10 @@ def main():
                 logger.info("-" * 70)
                 
                 try:
-                    from analysers.bpmn_content_modifier_extractor import BpmnContentModifierExtractor
+                    from analysers.iflw_content_modifier_extractor import IflwContentModifierExtractor
                     
                     iflw_dir = Path(download_path) / "iflows" / "iflw-files"
-                    output_dir = Path(download_path) / "iflows" / "bpmn-json-files"
+                    output_dir = Path(download_path) / "iflows" / "iflw-json-files"
                     
                     # Load configurations for placeholder resolution
                     configurations = None
@@ -1123,7 +1141,7 @@ def main():
                             logger.warning(f'Failed to load configurations: {e}')
                             configurations = None
                     
-                    extractor = BpmnContentModifierExtractor(
+                    extractor = IflwContentModifierExtractor(
                         iflw_files_dir=iflw_dir,
                         output_dir=output_dir,
                         timestamp=run_timestamp
@@ -1132,31 +1150,31 @@ def main():
                     cm_stats = extractor.extract_all(configurations)
                     
                     logger.info("")
-                    logger.info("BPMN content modifier extraction summary:")
+                    logger.info("IFLW content modifier extraction summary:")
                     logger.info(f"  IFLW files processed: {cm_stats['iflw_files_processed']}/{cm_stats['iflw_files_attempted']}")
                     logger.info(f"  Total content modifier rows extracted: {cm_stats['total_modifiers_extracted']}")
                     
                     if cm_stats['iflw_files_failed'] > 0:
                         logger.warning(f"  Failed to process {cm_stats['iflw_files_failed']} IFLW files")
-                        logger.warning("  Check bpmn-content-modifier-extraction-errors.json for details")
+                        logger.warning("  Check iflw-content-modifier-extraction-errors.json for details")
                     
                     logger.info("")
                     logger.info("=" * 70)
-                    logger.info("BPMN content modifier extraction completed!")
+                    logger.info("IFLW content modifier extraction completed!")
                     logger.info("=" * 70)
                     
                 except Exception as e:
-                    logger.error(f"BPMN content modifier extraction failed: {e}")
-                    logger.warning("Continuing without BPMN content modifier extraction...")
-            elif not config.parse_bpmn_content:
+                    logger.error(f"IFLW content modifier extraction failed: {e}")
+                    logger.warning("Continuing without IFLW content modifier extraction...")
+            elif not config.parse_iflw_content:
                 logger.info("")
-                logger.info("BPMN content modifier analysis disabled (PARSE_BPMN_CONTENT=false)")
+                logger.info("IFLW content modifier analysis disabled (PARSE_IFLW_CONTENT=false)")
             else:
                 logger.info("")
-                logger.info("Skipping BPMN content modifier extraction (IFlow content not extracted)")
+                logger.info("Skipping IFLW content modifier extraction (IFlow content not extracted)")
             
             # PHASE 1.9.8: EXTRACT TIMERS
-            if config.parse_bpmn_content and config.extract_iflow_content:
+            if config.parse_iflw_content and config.extract_iflow_content:
                 logger.info("")
                 logger.info("=" * 70)
                 logger.info("PHASE 1.9.8: EXTRACTING TIMERS")
@@ -1166,10 +1184,10 @@ def main():
                 logger.info("-" * 70)
                 
                 try:
-                    from analysers.bpmn_timer_extractor import BpmnTimerExtractor
+                    from analysers.iflw_timer_extractor import IflwTimerExtractor
                     
                     iflw_dir = Path(download_path) / "iflows" / "iflw-files"
-                    output_dir = Path(download_path) / "iflows" / "bpmn-json-files"
+                    output_dir = Path(download_path) / "iflows" / "iflw-json-files"
                     
                     # Load configurations for placeholder resolution
                     configurations = None
@@ -1197,7 +1215,7 @@ def main():
                             logger.warning(f'Failed to load configurations: {e}')
                             configurations = None
                     
-                    extractor = BpmnTimerExtractor(
+                    extractor = IflwTimerExtractor(
                         iflw_files_dir=iflw_dir,
                         output_dir=output_dir,
                         timestamp=run_timestamp
@@ -1206,7 +1224,7 @@ def main():
                     timer_stats = extractor.extract_all(configurations)
                     
                     logger.info("")
-                    logger.info("BPMN timer extraction summary:")
+                    logger.info("IFLW timer extraction summary:")
                     logger.info(f"  IFLW files processed: {timer_stats['iflw_files_processed']}/{timer_stats['iflw_files_attempted']}")
                     logger.info(f"  Total timers extracted: {timer_stats['total_timers_extracted']}")
                     logger.info(f"    Event timers: {timer_stats['event_timers']}")
@@ -1214,25 +1232,25 @@ def main():
                     
                     if timer_stats['iflw_files_failed'] > 0:
                         logger.warning(f"  Failed to process {timer_stats['iflw_files_failed']} IFLW files")
-                        logger.warning("  Check bpmn-timer-extraction-errors.json for details")
+                        logger.warning("  Check iflw-timer-extraction-errors.json for details")
                     
                     logger.info("")
                     logger.info("=" * 70)
-                    logger.info("BPMN timer extraction completed!")
+                    logger.info("IFLW timer extraction completed!")
                     logger.info("=" * 70)
                     
                 except Exception as e:
-                    logger.error(f"BPMN timer extraction failed: {e}")
-                    logger.warning("Continuing without BPMN timer extraction...")
-            elif not config.parse_bpmn_content:
+                    logger.error(f"IFLW timer extraction failed: {e}")
+                    logger.warning("Continuing without IFLW timer extraction...")
+            elif not config.parse_iflw_content:
                 logger.info("")
-                logger.info("BPMN timer analysis disabled (PARSE_BPMN_CONTENT=false)")
+                logger.info("IFLW timer analysis disabled (PARSE_IFLW_CONTENT=false)")
             else:
                 logger.info("")
-                logger.info("Skipping BPMN timer extraction (IFlow content not extracted)")
+                logger.info("Skipping IFLW timer extraction (IFlow content not extracted)")
             
             # PHASE 1.10: ENVIRONMENT VARIABLE SCANNING
-            if (config.parse_bpmn_content or config.extract_iflow_content or 
+            if (config.parse_iflw_content or config.extract_iflow_content or 
                 config.extract_script_collection_content or config.download_partner_directory):
                 logger.info("")
                 logger.info("=" * 70)
@@ -1304,12 +1322,12 @@ def main():
                 
                 # Define paths
                 json_files_dir = Path(download_path) / "json-files"
-                bpmn_json_files_dir = Path(download_path) / "iflows" / "bpmn-json-files"
+                iflw_json_files_dir = Path(download_path) / "iflows" / "iflw-json-files"
                 
                 # Create schema from JSON files
                 db_manager.create_tables_from_json_dirs(
                     odata_dir=json_files_dir,
-                    bpmn_dir=bpmn_json_files_dir
+                    iflw_dir=iflw_json_files_dir
                 )
                 
                 logger.info("")
@@ -1329,7 +1347,7 @@ def main():
             try:
                 db_manager.import_all_json_files(
                     odata_dir=json_files_dir,
-                    bpmn_dir=bpmn_json_files_dir
+                    iflw_dir=iflw_json_files_dir
                 )
                 
                 logger.info("")
@@ -1346,7 +1364,7 @@ def main():
                 logger.info(f"Total tables created: {len(tables)}")
                 
                 # Show row counts for key tables
-                for table_name in ['package', 'iflow', 'configuration', 'bpmn_activity', 'bpmn_channel']:
+                for table_name in ['package', 'iflow', 'configuration', 'iflw_activity', 'iflw_channel']:
                     try:
                         count = db_manager.get_table_count(table_name)
                         logger.info(f"  {table_name}: {count} rows")
@@ -1376,7 +1394,7 @@ def main():
                     PackageStatisticsReport,
                     NeoToCFMigrationReport
                 )
-                from report_generators.formatters import HTMLFormatter, NeoToCFFormatter
+                from report_generators.formatters import NeoToCFFormatter
                 
                 db_path = config.get_database_path(run_timestamp)
                 reports_generated = []
@@ -1386,25 +1404,31 @@ def main():
                 reports_dir.mkdir(exist_ok=True)
                 
                 # NEO to CF Migration Assessment (HTML only, no JSON)
-                try:
-                    report = NeoToCFMigrationReport(db_path, config.tenant_id, timestamp_iso)
-                    data = report.generate()
-                    
-                    # Generate HTML report with tenant and timestamp in filename
-                    html_formatter = NeoToCFFormatter(report.get_report_title(), config.tenant_id, timestamp_iso)
-                    timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    html_file = reports_dir / f"{report.get_report_name()}_{config.tenant_id}_{timestamp_str}.html"
-                    html_formatter.generate_html(data, html_file)
-                    
-                    reports_generated.append(report.get_report_name())
-                    logger.info(f"✓ Generated {report.get_report_title()}")
-                    logger.info(f"  HTML: {html_file}")
-                except Exception as e:
-                    logger.warning(f"Could not generate NEO to CF Migration Assessment: {e}")
+                if config.report_neo_to_cf:
+                    try:
+                        report = NeoToCFMigrationReport(db_path, config.tenant_id, timestamp_iso, config.subaccount_type)
+                        data = report.generate()
+
+                        # Generate HTML report with tenant and timestamp in filename
+                        html_formatter = NeoToCFFormatter(report.get_report_title(), config.tenant_id, timestamp_iso)
+                        timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        html_file = reports_dir / f"{report.get_report_name()}_{config.tenant_id}_{timestamp_str}.html"
+                        html_formatter.generate_html(data, html_file)
+
+                        reports_generated.append(report.get_report_name())
+                        logger.info(f"✓ Generated {report.get_report_title()}")
+                        logger.info(f"  HTML: {html_file}")
+                    except Exception as e:
+                        logger.warning(f"Could not generate NEO to CF Migration Assessment: {e}")
+                else:
+                    logger.info("  Skipped: NEO to CF Migration Assessment (not selected)")
                 
                 logger.info("")
                 logger.info("=" * 70)
-                logger.info(f"Report generation completed! ({len(reports_generated)} reports)")
+                if reports_generated:
+                    logger.info(f"Report generation completed! ({len(reports_generated)} reports)")
+                else:
+                    logger.warning("No reports were generated — check Report Selection in configuration")
                 logger.info("=" * 70)
                 logger.info("")
                 logger.info("Note: HTML/Excel output formatting not yet implemented")

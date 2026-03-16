@@ -1,6 +1,6 @@
 """
-BPMN Message Mapping Extractor for SAP Cloud Integration Analyzer Tool
-Extracts message mapping activities from IFLW (BPMN XML) files
+IFLW XSLT Mapping Extractor for SAP Cloud Integration Analyzer Tool
+Extracts XSLT mapping activities from IFLW (BPMN XML) files
 """
 
 import json
@@ -21,8 +21,8 @@ NAMESPACES = {
 
 
 @dataclass
-class BpmnActivityMessageMapping:
-    """Represents a BPMN message mapping activity"""
+class IflwActivityXSLTMapping:
+    """Represents an IFLW XSLT mapping activity"""
     # Base activity fields
     id: str
     name: str
@@ -34,16 +34,14 @@ class BpmnActivityMessageMapping:
     sub_activity_type: Optional[str]
     component_version: Optional[str]
     
-    # Message mapping-specific fields
-    mapping_id: Optional[str]                    # Message mapping resource ID (mappinguri)
-    mapping_name: Optional[str]                  # Mapping name
-    mapping_path: Optional[str]                  # Mapping path
-    mapping_reference: Optional[str]             # Mapping reference (static/dynamic)
-    mapping_source_value: Optional[str]          # Mapping source value
-    mapping_type: Optional[str]                  # Mapping type
-    message_mapping_bundle_id: Optional[str]     # Message mapping bundle ID
-    source_message: Optional[str]                # Source message type
-    target_message: Optional[str]                # Target message type
+    # XSLT mapping-specific fields
+    xslt_filename: Optional[str]              # XSLT file name/path (mappinguri)
+    mapping_name: Optional[str]               # Mapping name
+    mapping_path: Optional[str]               # Mapping path
+    mapping_output_format: Optional[str]      # Mapping output format
+    mapping_source: Optional[str]             # Mapping source
+    mapping_type: Optional[str]               # Mapping type
+    mapping_header_name_key: Optional[str]    # Mapping header name key
     
     def to_camel_case_dict(self) -> Dict[str, Any]:
         """Convert to dictionary with camelCase keys - matching exact base structure"""
@@ -53,12 +51,11 @@ class BpmnActivityMessageMapping:
             'id': self.id,
             'iflowId': self.iflow_id,
             'mappingname': self.mapping_name,
+            'mappingoutputformat': self.mapping_output_format,
             'mappingpath': self.mapping_path,
-            'mappingReference': self.mapping_reference,
-            'mappingSourceValue': self.mapping_source_value,
+            'mappingSource': self.mapping_source,
             'mappingType': self.mapping_type,
-            'mappinguri': self.mapping_id,
-            'messageMappingBundleId': self.message_mapping_bundle_id,
+            'mappinguri': self.xslt_filename,
             'name': self.name,
             'packageId': self.package_id,
             'processId': self.process_id,
@@ -67,13 +64,13 @@ class BpmnActivityMessageMapping:
         }
 
 
-class BpmnActivityMessageMappingAnalyzer:
-    """Analyzes BPMN XML to extract message mapping activities"""
+class IflwActivityXSLTMappingAnalyzer:
+    """Analyzes IFLW XML to extract XSLT mapping activities"""
     
     @staticmethod
-    def analyze(root: ET.Element, iflow_id: str, package_id: str) -> List[BpmnActivityMessageMapping]:
+    def analyze(root: ET.Element, iflow_id: str, package_id: str) -> List[IflwActivityXSLTMapping]:
         """
-        Extract message mapping activities from BPMN XML
+        Extract XSLT mapping activities from IFLW XML
         
         Args:
             root: XML root element
@@ -81,9 +78,9 @@ class BpmnActivityMessageMappingAnalyzer:
             package_id: Package ID
             
         Returns:
-            List of BpmnActivityMessageMapping objects
+            List of IflwActivityXSLTMapping objects
         """
-        mappings = []
+        xslt_mappings = []
         
         # Find all processes and subprocesses
         processes = root.findall('.//bpmn2:process', NAMESPACES)
@@ -107,50 +104,56 @@ class BpmnActivityMessageMappingAnalyzer:
                 activity_name = activity.get('name', '')
                 
                 # Extract properties
-                props = BpmnActivityMessageMappingAnalyzer._extract_properties(activity)
+                props = IflwActivityXSLTMappingAnalyzer._extract_properties(activity)
                 
                 activity_type = props.get('activityType')
                 sub_activity_type = props.get('subActivityType')
                 mapping_type = props.get('mappingType')
                 
-                # Filter: Only Message Mappings
-                # activityType == "Mapping" 
-                # AND mappingType != "XSLTMapping" 
-                # AND subActivityType != "XSLTMapping"
-                if (BpmnActivityMessageMappingAnalyzer._equals_ignore_case(activity_type, 'Mapping') and 
-                    not BpmnActivityMessageMappingAnalyzer._equals_ignore_case(mapping_type, 'XSLTMapping') and
-                    not BpmnActivityMessageMappingAnalyzer._equals_ignore_case(sub_activity_type, 'XSLTMapping')):
+                # Filter: XSLT Mappings
+                # activityType == "Mapping" AND (mappingType == "XSLTMapping" OR subActivityType == "XSLTMapping")
+                # Must have at least ONE XSLT indicator
+                is_xslt_by_mapping_type = IflwActivityXSLTMappingAnalyzer._equals_ignore_case(mapping_type, 'XSLTMapping')
+                is_xslt_by_sub_type = IflwActivityXSLTMappingAnalyzer._equals_ignore_case(sub_activity_type, 'XSLTMapping')
+                
+                if (IflwActivityXSLTMappingAnalyzer._equals_ignore_case(activity_type, 'Mapping') and 
+                    (is_xslt_by_mapping_type or is_xslt_by_sub_type)):
                     
                     # Extract component version and sub activity type
                     component_version = props.get('componentVersion')
                     sub_activity_type = props.get('subActivityType')
                     
-                    # Create message mapping object
-                    mapping = BpmnActivityMessageMapping(
+                    # Create XSLT mapping object
+                    xslt = IflwActivityXSLTMapping(
                         id=activity_id,
                         name=activity_name,
                         process_id=process_id,
                         process_name=process_name,
                         iflow_id=iflow_id,
                         package_id=package_id,
-                        activity_type=activity_type or 'Mapping',
+                        activity_type=activity_type,
                         sub_activity_type=sub_activity_type,
                         component_version=component_version,
-                        mapping_id=props.get('mappinguri'),
+                        xslt_filename=props.get('mappinguri'),
                         mapping_name=props.get('mappingname'),
                         mapping_path=props.get('mappingpath'),
-                        mapping_reference=props.get('mappingReference'),
-                        mapping_source_value=props.get('mappingSourceValue'),
+                        mapping_output_format=props.get('mappingoutputformat'),
+                        mapping_source=props.get('mappingSource'),
                         mapping_type=props.get('mappingType'),
-                        message_mapping_bundle_id=props.get('messageMappingBundleId'),
-                        source_message=props.get('messagemappingSourcemessage'),
-                        target_message=props.get('messagemappingTargetmessage')
+                        mapping_header_name_key=props.get('mappingHeaderNameKey')
                     )
                     
-                    mappings.append(mapping)
-                    logger.trace(f"      Extracted message mapping: {activity_id}")
+                    xslt_mappings.append(xslt)
+                    logger.trace(f"      Extracted XSLT mapping: {activity_id}")
         
-        return mappings
+        return xslt_mappings
+    
+    @staticmethod
+    def _equals_ignore_case(str1: Optional[str], str2: str) -> bool:
+        """Case-insensitive string comparison"""
+        if str1 is None:
+            return False
+        return str1.lower() == str2.lower()
     
     @staticmethod
     def _extract_properties(activity_xml: ET.Element) -> Dict[str, Optional[str]]:
@@ -189,21 +192,14 @@ class BpmnActivityMessageMappingAnalyzer:
                         props[key] = value
         
         return props
-    
-    @staticmethod
-    def _equals_ignore_case(str1: Optional[str], str2: str) -> bool:
-        """Case-insensitive string comparison"""
-        if str1 is None:
-            return False
-        return str1.lower() == str2.lower()
 
 
-class BpmnMessageMappingExtractor:
-    """Main extractor for BPMN message mappings across all IFLW files"""
+class IflwXSLTMappingExtractor:
+    """Main extractor for IFLW XSLT mappings across all IFLW files"""
     
     def __init__(self, iflw_files_dir: Path, output_dir: Path, timestamp: str = None):
         """
-        Initialize BPMN Message Mapping Extractor
+        Initialize IFLW XSLT Mapping Extractor
         
         Args:
             iflw_files_dir: Directory containing IFLW files
@@ -217,18 +213,18 @@ class BpmnMessageMappingExtractor:
         # Track errors
         self.errors = []
         
-        logger.info("BpmnMessageMappingExtractor initialized")
+        logger.info("IflwXSLTMappingExtractor initialized")
         logger.info(f"  IFLW files: {self.iflw_files_dir}")
         logger.info(f"  Output: {self.output_dir}")
     
     def extract_all(self) -> Dict[str, Any]:
         """
-        Extract message mappings from all IFLW files
+        Extract XSLT mappings from all IFLW files
         
         Returns:
             Dictionary with extraction statistics
         """
-        logger.info("Starting BPMN message mapping extraction...")
+        logger.info("Starting IFLW XSLT mapping extraction...")
         
         stats = {
             "iflw_files_attempted": 0,
@@ -253,8 +249,8 @@ class BpmnMessageMappingExtractor:
         
         logger.info(f"Found {len(iflw_files)} IFLW files to process")
         
-        # Collect all message mappings
-        all_mappings = []
+        # Collect all XSLT mappings
+        all_xslt_mappings = []
         
         # Process each IFLW file
         for idx, iflw_path in enumerate(iflw_files, 1):
@@ -270,23 +266,23 @@ class BpmnMessageMappingExtractor:
                 tree = ET.parse(iflw_path)
                 root = tree.getroot()
                 
-                # Extract message mappings
-                mappings = BpmnActivityMessageMappingAnalyzer.analyze(
+                # Extract XSLT mappings
+                xslt_mappings = IflwActivityXSLTMappingAnalyzer.analyze(
                     root=root,
                     iflow_id=iflow_id,
                     package_id=package_id
                 )
                 
                 # Add to master list
-                all_mappings.extend(mappings)
+                all_xslt_mappings.extend(xslt_mappings)
                 
                 # Update statistics
-                stats["total_mappings_extracted"] += len(mappings)
+                stats["total_mappings_extracted"] += len(xslt_mappings)
                 
                 stats["iflw_files_processed"] += 1
                 
-                if len(mappings) > 0:
-                    logger.debug(f"  Extracted {len(mappings)} message mappings")
+                if len(xslt_mappings) > 0:
+                    logger.debug(f"  Extracted {len(xslt_mappings)} XSLT mappings")
                 
             except Exception as e:
                 stats["iflw_files_failed"] += 1
@@ -294,14 +290,14 @@ class BpmnMessageMappingExtractor:
                 self._track_error(iflw_path.name, "EXTRACTION_ERROR", str(e))
         
         # Save output
-        self._save_output(all_mappings)
+        self._save_output(all_xslt_mappings)
         
         # Save error log if there are errors
         if self.errors:
             self._save_error_log()
         
-        logger.info(f"BPMN message mapping extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
-        logger.info(f"Total message mappings extracted: {stats['total_mappings_extracted']}")
+        logger.info(f"IFLW XSLT mapping extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
+        logger.info(f"Total XSLT mappings extracted: {stats['total_mappings_extracted']}")
         
         return stats
     
@@ -320,16 +316,16 @@ class BpmnMessageMappingExtractor:
         
         return package_id, iflow_id
     
-    def _save_output(self, mappings: List[BpmnActivityMessageMapping]):
-        """Save message mappings to JSON file with camelCase keys"""
+    def _save_output(self, xslt_mappings: List[IflwActivityXSLTMapping]):
+        """Save XSLT mappings to JSON file with camelCase keys"""
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save mappings with camelCase keys
-        mappings_file = self.output_dir / "bpmn-message-mappings.json"
+        # Save XSLT mappings with camelCase keys
+        mappings_file = self.output_dir / "iflw-xslt-mappings.json"
         with open(mappings_file, 'w', encoding='utf-8') as f:
-            json.dump([m.to_camel_case_dict() for m in mappings], f, indent=4, ensure_ascii=False)
-        logger.info(f"Saved {len(mappings)} message mappings to {mappings_file}")
+            json.dump([m.to_camel_case_dict() for m in xslt_mappings], f, indent=4, ensure_ascii=False)
+        logger.info(f"Saved {len(xslt_mappings)} XSLT mappings to {mappings_file}")
     
     def _track_error(self, iflw_name: str, error_type: str, error_message: str):
         """Track extraction error"""
@@ -342,7 +338,7 @@ class BpmnMessageMappingExtractor:
     
     def _save_error_log(self):
         """Save error log to JSON file"""
-        output_file = self.output_dir / "bpmn-message-mapping-extraction-errors.json"
+        output_file = self.output_dir / "iflw-xslt-mapping-extraction-errors.json"
         
         output_data = {
             "errors": self.errors,
@@ -352,4 +348,4 @@ class BpmnMessageMappingExtractor:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        logger.info(f"Saved message mapping extraction error log: bpmn-message-mapping-extraction-errors.json")
+        logger.info(f"Saved XSLT mapping extraction error log: iflw-xslt-mapping-extraction-errors.json")

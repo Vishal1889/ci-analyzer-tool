@@ -1,6 +1,6 @@
 """
-BPMN XSLT Mapping Extractor for SAP Cloud Integration Analyzer Tool
-Extracts XSLT mapping activities from IFLW (BPMN XML) files
+IFLW Groovy Script Extractor for SAP Cloud Integration Analyzer Tool
+Extracts Groovy script activities from IFLW (BPMN XML) files
 """
 
 import json
@@ -13,7 +13,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# XML Namespaces for BPMN 2.0
+# XML Namespaces for IFLW (BPMN 2.0)
 NAMESPACES = {
     'bpmn2': 'http://www.omg.org/spec/BPMN/20100524/MODEL',
     'ifl': 'http:///com.sap.ifl.model/Ifl.xsd'
@@ -21,8 +21,8 @@ NAMESPACES = {
 
 
 @dataclass
-class BpmnActivityXSLTMapping:
-    """Represents a BPMN XSLT mapping activity"""
+class IflwActivityScript:
+    """Represents an IFLW Groovy script activity"""
     # Base activity fields
     id: str
     name: str
@@ -31,46 +31,39 @@ class BpmnActivityXSLTMapping:
     iflow_id: str
     package_id: str
     activity_type: str
-    sub_activity_type: Optional[str]
+    sub_activity_type: str
     component_version: Optional[str]
     
-    # XSLT mapping-specific fields
-    xslt_filename: Optional[str]              # XSLT file name/path (mappinguri)
-    mapping_name: Optional[str]               # Mapping name
-    mapping_path: Optional[str]               # Mapping path
-    mapping_output_format: Optional[str]      # Mapping output format
-    mapping_source: Optional[str]             # Mapping source
-    mapping_type: Optional[str]               # Mapping type
-    mapping_header_name_key: Optional[str]    # Mapping header name key
+    # Script-specific fields
+    script: Optional[str]              # The actual Groovy script code
+    script_bundle_id: Optional[str]    # Script collection/bundle ID
+    script_function: Optional[str]     # Function name to call
     
     def to_camel_case_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary with camelCase keys - matching exact base structure"""
+        """Convert to dictionary with camelCase keys"""
         return {
-            'activityType': self.activity_type,
-            'componentVersion': self.component_version,
             'id': self.id,
-            'iflowId': self.iflow_id,
-            'mappingname': self.mapping_name,
-            'mappingoutputformat': self.mapping_output_format,
-            'mappingpath': self.mapping_path,
-            'mappingSource': self.mapping_source,
-            'mappingType': self.mapping_type,
-            'mappinguri': self.xslt_filename,
             'name': self.name,
-            'packageId': self.package_id,
             'processId': self.process_id,
             'processName': self.process_name,
-            'subActivityType': self.sub_activity_type
+            'iflowId': self.iflow_id,
+            'packageId': self.package_id,
+            'activityType': self.activity_type,
+            'subActivityType': self.sub_activity_type,
+            'componentVersion': self.component_version,
+            'script': self.script,
+            'scriptBundleId': self.script_bundle_id,
+            'scriptFunction': self.script_function
         }
 
 
-class BpmnActivityXSLTMappingAnalyzer:
-    """Analyzes BPMN XML to extract XSLT mapping activities"""
+class IflwActivityScriptAnalyzer:
+    """Analyzes IFLW XML to extract Groovy script activities"""
     
     @staticmethod
-    def analyze(root: ET.Element, iflow_id: str, package_id: str) -> List[BpmnActivityXSLTMapping]:
+    def analyze_groovy(root: ET.Element, iflow_id: str, package_id: str) -> List[IflwActivityScript]:
         """
-        Extract XSLT mapping activities from BPMN XML
+        Extract Groovy script activities from IFLW XML
         
         Args:
             root: XML root element
@@ -78,9 +71,9 @@ class BpmnActivityXSLTMappingAnalyzer:
             package_id: Package ID
             
         Returns:
-            List of BpmnActivityXSLTMapping objects
+            List of IflwActivityScript objects
         """
-        xslt_mappings = []
+        scripts = []
         
         # Find all processes and subprocesses
         processes = root.findall('.//bpmn2:process', NAMESPACES)
@@ -94,7 +87,7 @@ class BpmnActivityXSLTMappingAnalyzer:
             process_id = proc.get('id', '')
             process_name = proc.get('name', '')
             
-            # Only process callActivity elements
+            # Only process callActivity elements (scripts are callActivities)
             call_activities = proc.findall('bpmn2:callActivity', NAMESPACES)
             
             logger.trace(f"    Process {process_id}: {len(call_activities)} callActivities")
@@ -104,56 +97,38 @@ class BpmnActivityXSLTMappingAnalyzer:
                 activity_name = activity.get('name', '')
                 
                 # Extract properties
-                props = BpmnActivityXSLTMappingAnalyzer._extract_properties(activity)
+                props = IflwActivityScriptAnalyzer._extract_properties(activity)
                 
                 activity_type = props.get('activityType')
                 sub_activity_type = props.get('subActivityType')
-                mapping_type = props.get('mappingType')
                 
-                # Filter: XSLT Mappings
-                # activityType == "Mapping" AND (mappingType == "XSLTMapping" OR subActivityType == "XSLTMapping")
-                # Must have at least ONE XSLT indicator
-                is_xslt_by_mapping_type = BpmnActivityXSLTMappingAnalyzer._equals_ignore_case(mapping_type, 'XSLTMapping')
-                is_xslt_by_sub_type = BpmnActivityXSLTMappingAnalyzer._equals_ignore_case(sub_activity_type, 'XSLTMapping')
-                
-                if (BpmnActivityXSLTMappingAnalyzer._equals_ignore_case(activity_type, 'Mapping') and 
-                    (is_xslt_by_mapping_type or is_xslt_by_sub_type)):
+                # Filter: Only Groovy scripts (case-insensitive)
+                if (IflwActivityScriptAnalyzer._equals_ignore_case(activity_type, 'Script') and
+                    IflwActivityScriptAnalyzer._equals_ignore_case(sub_activity_type, 'GroovyScript')):
                     
-                    # Extract component version and sub activity type
+                    # Extract component version
                     component_version = props.get('componentVersion')
-                    sub_activity_type = props.get('subActivityType')
                     
-                    # Create XSLT mapping object
-                    xslt = BpmnActivityXSLTMapping(
+                    # Create script object
+                    script = IflwActivityScript(
                         id=activity_id,
                         name=activity_name,
                         process_id=process_id,
                         process_name=process_name,
                         iflow_id=iflow_id,
                         package_id=package_id,
-                        activity_type=activity_type,
-                        sub_activity_type=sub_activity_type,
+                        activity_type=activity_type or 'Script',
+                        sub_activity_type=sub_activity_type or 'GroovyScript',
                         component_version=component_version,
-                        xslt_filename=props.get('mappinguri'),
-                        mapping_name=props.get('mappingname'),
-                        mapping_path=props.get('mappingpath'),
-                        mapping_output_format=props.get('mappingoutputformat'),
-                        mapping_source=props.get('mappingSource'),
-                        mapping_type=props.get('mappingType'),
-                        mapping_header_name_key=props.get('mappingHeaderNameKey')
+                        script=props.get('script'),
+                        script_bundle_id=props.get('scriptBundleId'),
+                        script_function=props.get('scriptFunction')
                     )
                     
-                    xslt_mappings.append(xslt)
-                    logger.trace(f"      Extracted XSLT mapping: {activity_id}")
+                    scripts.append(script)
+                    logger.trace(f"      Extracted Groovy script: {activity_id}")
         
-        return xslt_mappings
-    
-    @staticmethod
-    def _equals_ignore_case(str1: Optional[str], str2: str) -> bool:
-        """Case-insensitive string comparison"""
-        if str1 is None:
-            return False
-        return str1.lower() == str2.lower()
+        return scripts
     
     @staticmethod
     def _extract_properties(activity_xml: ET.Element) -> Dict[str, Optional[str]]:
@@ -192,14 +167,21 @@ class BpmnActivityXSLTMappingAnalyzer:
                         props[key] = value
         
         return props
+    
+    @staticmethod
+    def _equals_ignore_case(str1: Optional[str], str2: str) -> bool:
+        """Case-insensitive string comparison"""
+        if str1 is None:
+            return False
+        return str1.lower() == str2.lower()
 
 
-class BpmnXSLTMappingExtractor:
-    """Main extractor for BPMN XSLT mappings across all IFLW files"""
+class IflwScriptExtractor:
+    """Main extractor for IFLW Groovy scripts across all IFLW files"""
     
     def __init__(self, iflw_files_dir: Path, output_dir: Path, timestamp: str = None):
         """
-        Initialize BPMN XSLT Mapping Extractor
+        Initialize IFLW Script Extractor
         
         Args:
             iflw_files_dir: Directory containing IFLW files
@@ -213,24 +195,26 @@ class BpmnXSLTMappingExtractor:
         # Track errors
         self.errors = []
         
-        logger.info("BpmnXSLTMappingExtractor initialized")
+        logger.info("IflwScriptExtractor initialized")
         logger.info(f"  IFLW files: {self.iflw_files_dir}")
         logger.info(f"  Output: {self.output_dir}")
     
     def extract_all(self) -> Dict[str, Any]:
         """
-        Extract XSLT mappings from all IFLW files
+        Extract Groovy scripts from all IFLW files
         
         Returns:
             Dictionary with extraction statistics
         """
-        logger.info("Starting BPMN XSLT mapping extraction...")
+        logger.info("Starting IFLW Groovy script extraction...")
         
         stats = {
             "iflw_files_attempted": 0,
             "iflw_files_processed": 0,
             "iflw_files_failed": 0,
-            "total_mappings_extracted": 0
+            "total_scripts_extracted": 0,
+            "inline_scripts": 0,
+            "bundle_scripts": 0
         }
         
         # Check if IFLW directory exists
@@ -249,8 +233,8 @@ class BpmnXSLTMappingExtractor:
         
         logger.info(f"Found {len(iflw_files)} IFLW files to process")
         
-        # Collect all XSLT mappings
-        all_xslt_mappings = []
+        # Collect all Groovy scripts
+        all_scripts = []
         
         # Process each IFLW file
         for idx, iflw_path in enumerate(iflw_files, 1):
@@ -266,23 +250,30 @@ class BpmnXSLTMappingExtractor:
                 tree = ET.parse(iflw_path)
                 root = tree.getroot()
                 
-                # Extract XSLT mappings
-                xslt_mappings = BpmnActivityXSLTMappingAnalyzer.analyze(
+                # Extract Groovy scripts
+                scripts = IflwActivityScriptAnalyzer.analyze_groovy(
                     root=root,
                     iflow_id=iflow_id,
                     package_id=package_id
                 )
                 
                 # Add to master list
-                all_xslt_mappings.extend(xslt_mappings)
+                all_scripts.extend(scripts)
                 
                 # Update statistics
-                stats["total_mappings_extracted"] += len(xslt_mappings)
+                stats["total_scripts_extracted"] += len(scripts)
+                
+                # Count inline vs bundle scripts
+                for script in scripts:
+                    if script.script:
+                        stats["inline_scripts"] += 1
+                    elif script.script_bundle_id:
+                        stats["bundle_scripts"] += 1
                 
                 stats["iflw_files_processed"] += 1
                 
-                if len(xslt_mappings) > 0:
-                    logger.debug(f"  Extracted {len(xslt_mappings)} XSLT mappings")
+                if len(scripts) > 0:
+                    logger.debug(f"  Extracted {len(scripts)} Groovy scripts")
                 
             except Exception as e:
                 stats["iflw_files_failed"] += 1
@@ -290,14 +281,16 @@ class BpmnXSLTMappingExtractor:
                 self._track_error(iflw_path.name, "EXTRACTION_ERROR", str(e))
         
         # Save output
-        self._save_output(all_xslt_mappings)
+        self._save_output(all_scripts)
         
         # Save error log if there are errors
         if self.errors:
             self._save_error_log()
         
-        logger.info(f"BPMN XSLT mapping extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
-        logger.info(f"Total XSLT mappings extracted: {stats['total_mappings_extracted']}")
+        logger.info(f"IFLW Groovy script extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
+        logger.info(f"Total Groovy scripts extracted: {stats['total_scripts_extracted']}")
+        logger.info(f"  Inline scripts: {stats['inline_scripts']}")
+        logger.info(f"  Bundle scripts: {stats['bundle_scripts']}")
         
         return stats
     
@@ -316,16 +309,16 @@ class BpmnXSLTMappingExtractor:
         
         return package_id, iflow_id
     
-    def _save_output(self, xslt_mappings: List[BpmnActivityXSLTMapping]):
-        """Save XSLT mappings to JSON file with camelCase keys"""
+    def _save_output(self, scripts: List[IflwActivityScript]):
+        """Save Groovy scripts to JSON file with camelCase keys"""
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save XSLT mappings with camelCase keys
-        mappings_file = self.output_dir / "bpmn-xslt-mappings.json"
-        with open(mappings_file, 'w', encoding='utf-8') as f:
-            json.dump([m.to_camel_case_dict() for m in xslt_mappings], f, indent=4, ensure_ascii=False)
-        logger.info(f"Saved {len(xslt_mappings)} XSLT mappings to {mappings_file}")
+        # Save scripts with camelCase keys
+        scripts_file = self.output_dir / "iflw-groovy-scripts.json"
+        with open(scripts_file, 'w', encoding='utf-8') as f:
+            json.dump([s.to_camel_case_dict() for s in scripts], f, indent=4, ensure_ascii=False)
+        logger.info(f"Saved {len(scripts)} Groovy scripts to {scripts_file}")
     
     def _track_error(self, iflw_name: str, error_type: str, error_message: str):
         """Track extraction error"""
@@ -338,7 +331,7 @@ class BpmnXSLTMappingExtractor:
     
     def _save_error_log(self):
         """Save error log to JSON file"""
-        output_file = self.output_dir / "bpmn-xslt-mapping-extraction-errors.json"
+        output_file = self.output_dir / "iflw-script-extraction-errors.json"
         
         output_data = {
             "errors": self.errors,
@@ -348,4 +341,4 @@ class BpmnXSLTMappingExtractor:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        logger.info(f"Saved XSLT mapping extraction error log: bpmn-xslt-mapping-extraction-errors.json")
+        logger.info(f"Saved script extraction error log: iflw-script-extraction-errors.json")

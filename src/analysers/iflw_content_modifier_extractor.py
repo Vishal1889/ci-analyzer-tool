@@ -1,5 +1,5 @@
 """
-BPMN Content Modifier (Enricher) Extractor for SAP Cloud Integration Analyzer Tool
+IFLW Content Modifier (Enricher) Extractor for SAP Cloud Integration Analyzer Tool
 Extracts content modifier activities that modify message headers or properties
 """
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass
 from utils.logger import get_logger
-from analysers.bpmn_process_activity_resolver import BpmnProcessActivityResolver
+from analysers.iflw_process_activity_resolver import IflwProcessActivityResolver
 
 logger = get_logger(__name__)
 
@@ -22,8 +22,8 @@ NAMESPACES = {
 
 
 @dataclass
-class BpmnActivityEnricher:
-    """Represents a BPMN content modifier (enricher) row"""
+class IflwActivityEnricher:
+    """Represents an IFLW content modifier (enricher) row"""
     # Row-specific fields (9 fields)
     row_table: str                          # "header" or "property"
     row_action: Optional[str]               # Action (e.g., "Create", "Delete")
@@ -73,13 +73,13 @@ class BpmnActivityEnricher:
         }
 
 
-class BpmnActivityEnricherAnalyzer:
-    """Analyzes BPMN XML to extract content modifier (enricher) activities"""
+class IflwActivityEnricherAnalyzer:
+    """Analyzes IFLW XML to extract content modifier (enricher) activities"""
     
     @staticmethod
-    def analyze(root: ET.Element, iflow_id: str, package_id: str) -> List[BpmnActivityEnricher]:
+    def analyze(root: ET.Element, iflow_id: str, package_id: str) -> List[IflwActivityEnricher]:
         """
-        Extract content modifier activities from BPMN XML
+        Extract content modifier activities from IFLW XML
         
         Args:
             root: XML root element
@@ -87,7 +87,7 @@ class BpmnActivityEnricherAnalyzer:
             package_id: Package ID
             
         Returns:
-            List of BpmnActivityEnricher objects (one per header/property row)
+            List of IflwActivityEnricher objects (one per header/property row)
         """
         enrichers = []
         
@@ -113,12 +113,12 @@ class BpmnActivityEnricherAnalyzer:
                 activity_name = activity.get('name', '')
                 
                 # Extract properties
-                props = BpmnActivityEnricherAnalyzer._extract_properties(activity)
+                props = IflwActivityEnricherAnalyzer._extract_properties(activity)
                 
                 activity_type = props.get('activityType')
                 
                 # Filter: Only Enricher activities
-                if not BpmnActivityEnricherAnalyzer._equals_ignore_case(activity_type, 'Enricher'):
+                if not IflwActivityEnricherAnalyzer._equals_ignore_case(activity_type, 'Enricher'):
                     continue
                 
                 component_version = props.get('componentVersion')
@@ -131,14 +131,14 @@ class BpmnActivityEnricherAnalyzer:
                 
                 if component_version == '1.1':
                     # Version 1.1: Legacy text format
-                    rows = BpmnActivityEnricherAnalyzer._parse_version_1_1(props)
+                    rows = IflwActivityEnricherAnalyzer._parse_version_1_1(props)
                 else:
                     # Other versions: XML format
-                    rows = BpmnActivityEnricherAnalyzer._parse_xml_format(props)
+                    rows = IflwActivityEnricherAnalyzer._parse_xml_format(props)
                 
-                # Create BpmnActivityEnricher object for each row
+                # Create IflwActivityEnricher object for each row
                 for row in rows:
-                    enricher = BpmnActivityEnricher(
+                    enricher = IflwActivityEnricher(
                         # Row-specific fields
                         row_table=row['table'],
                         row_action=row.get('Action'),
@@ -188,11 +188,11 @@ class BpmnActivityEnricherAnalyzer:
         rows = []
         
         # Process header table
-        header_rows = BpmnActivityEnricherAnalyzer._parse_text_table(props, 'HEADER_', 'header')
+        header_rows = IflwActivityEnricherAnalyzer._parse_text_table(props, 'HEADER_', 'header')
         rows.extend(header_rows)
         
         # Process property table
-        property_rows = BpmnActivityEnricherAnalyzer._parse_text_table(props, 'property_', 'property')
+        property_rows = IflwActivityEnricherAnalyzer._parse_text_table(props, 'property_', 'property')
         rows.extend(property_rows)
         
         return rows
@@ -279,13 +279,13 @@ class BpmnActivityEnricherAnalyzer:
         # Process header table
         header_xml = props.get('headerTable')
         if header_xml:
-            header_rows = BpmnActivityEnricherAnalyzer._parse_xml_table(header_xml, 'header')
+            header_rows = IflwActivityEnricherAnalyzer._parse_xml_table(header_xml, 'header')
             rows.extend(header_rows)
         
         # Process property table
         property_xml = props.get('propertyTable')
         if property_xml:
-            property_rows = BpmnActivityEnricherAnalyzer._parse_xml_table(property_xml, 'property')
+            property_rows = IflwActivityEnricherAnalyzer._parse_xml_table(property_xml, 'property')
             rows.extend(property_rows)
         
         return rows
@@ -372,12 +372,12 @@ class BpmnActivityEnricherAnalyzer:
         return str1.lower() == str2.lower()
 
 
-class BpmnContentModifierExtractor:
-    """Main extractor for BPMN content modifiers across all IFLW files"""
+class IflwContentModifierExtractor:
+    """Main extractor for IFLW content modifiers across all IFLW files"""
     
     def __init__(self, iflw_files_dir: Path, output_dir: Path, timestamp: str = None):
         """
-        Initialize BPMN Content Modifier Extractor
+        Initialize IFLW Content Modifier Extractor
         
         Args:
             iflw_files_dir: Directory containing IFLW files
@@ -391,7 +391,7 @@ class BpmnContentModifierExtractor:
         # Track errors
         self.errors = []
         
-        logger.info("BpmnContentModifierExtractor initialized")
+        logger.info("IflwContentModifierExtractor initialized")
         logger.info(f"  IFLW files: {self.iflw_files_dir}")
         logger.info(f"  Output: {self.output_dir}")
     
@@ -405,7 +405,7 @@ class BpmnContentModifierExtractor:
         Returns:
             Dictionary with extraction statistics
         """
-        logger.info("Starting BPMN content modifier extraction...")
+        logger.info("Starting IFLW content modifier extraction...")
         
         stats = {
             "iflw_files_attempted": 0,
@@ -448,7 +448,7 @@ class BpmnContentModifierExtractor:
                 root = tree.getroot()
                 
                 # Extract content modifiers
-                modifiers = BpmnActivityEnricherAnalyzer.analyze(
+                modifiers = IflwActivityEnricherAnalyzer.analyze(
                     root=root,
                     iflow_id=iflow_id,
                     package_id=package_id
@@ -458,10 +458,10 @@ class BpmnContentModifierExtractor:
                 if configurations and iflow_id in configurations:
                     cfg = configurations[iflow_id]
                     for modifier in modifiers:
-                        modifier.row_value_resolved = BpmnProcessActivityResolver.resolveOnePass(
+                        modifier.row_value_resolved = IflwProcessActivityResolver.resolveOnePass(
                             modifier.row_value, cfg
                         )
-                        modifier.row_default_resolved = BpmnProcessActivityResolver.resolveOnePass(
+                        modifier.row_default_resolved = IflwProcessActivityResolver.resolveOnePass(
                             modifier.row_default, cfg
                         )
                 else:
@@ -492,7 +492,7 @@ class BpmnContentModifierExtractor:
         if self.errors:
             self._save_error_log()
         
-        logger.info(f"BPMN content modifier extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
+        logger.info(f"IFLW content modifier extraction completed. Processed {stats['iflw_files_processed']}/{stats['iflw_files_attempted']}")
         logger.info(f"Total content modifier rows extracted: {stats['total_modifiers_extracted']}")
         
         return stats
@@ -512,13 +512,13 @@ class BpmnContentModifierExtractor:
         
         return package_id, iflow_id
     
-    def _save_output(self, modifiers: List[BpmnActivityEnricher]):
+    def _save_output(self, modifiers: List[IflwActivityEnricher]):
         """Save content modifiers to JSON file"""
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Save modifiers
-        output_file = self.output_dir / "bpmn-content-modifiers.json"
+        output_file = self.output_dir / "iflw-content-modifiers.json"
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump([m.to_dict() for m in modifiers], f, indent=4, ensure_ascii=False)
         logger.info(f"Saved {len(modifiers)} content modifier rows to {output_file}")
@@ -534,7 +534,7 @@ class BpmnContentModifierExtractor:
     
     def _save_error_log(self):
         """Save error log to JSON file"""
-        output_file = self.output_dir / "bpmn-content-modifier-extraction-errors.json"
+        output_file = self.output_dir / "iflw-content-modifier-extraction-errors.json"
         
         output_data = {
             "errors": self.errors,
@@ -544,4 +544,4 @@ class BpmnContentModifierExtractor:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        logger.info(f"Saved content modifier extraction error log: bpmn-content-modifier-extraction-errors.json")
+        logger.info(f"Saved content modifier extraction error log: iflw-content-modifier-extraction-errors.json")

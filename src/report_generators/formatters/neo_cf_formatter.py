@@ -73,6 +73,7 @@ class NeoToCFFormatter:
 {self._generate_tab_environment_variables(data)}
 {self._generate_tab_certificate_mappings(data)}
 {self._generate_tab_keystore(data)}
+{self._generate_tab_download_errors(data)}
         </div>
         
         <!-- Footer -->
@@ -564,11 +565,14 @@ class NeoToCFFormatter:
         """Generate report header"""
         metadata = data.get('metadata', {})
         captured_date = metadata.get('report_generated_at', self.captured_at)
-        
+        subaccount_type = metadata.get('subaccount_type', 'CF')
+        subaccount_label = 'Cloud Foundry' if subaccount_type == 'CF' else 'NEO'
+
         return f"""        <div class="report-header">
             <h1>📊 {self.report_title}</h1>
             <div class="report-meta">
-                <strong>Tenant:</strong> {self.tenant_id} &nbsp;|&nbsp;
+                <strong>Tenant Name:</strong> {self.tenant_id} &nbsp;|&nbsp;
+                <strong>Subaccount Type:</strong> {subaccount_label} &nbsp;|&nbsp;
                 <strong>Extraction Date:</strong> {captured_date}
             </div>
         </div>"""
@@ -615,13 +619,19 @@ class NeoToCFFormatter:
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="certmappings-tab" data-bs-toggle="tab" 
                         data-bs-target="#certmappings" type="button" role="tab">
-                    🔐 Certificate Mappings
+                    🔐 Certificate-User Mappings
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="keystore-tab" data-bs-toggle="tab" 
+                <button class="nav-link" id="keystore-tab" data-bs-toggle="tab"
                         data-bs-target="#keystore" type="button" role="tab">
                     🔑 Keystore
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="downloaderrors-tab" data-bs-toggle="tab"
+                        data-bs-target="#downloaderrors" type="button" role="tab">
+                    ⚠️ Download Errors
                 </button>
             </li>
         </ul>"""
@@ -1236,7 +1246,7 @@ class NeoToCFFormatter:
         if not env_vars_data.get('available', False):
             return """            <div class="tab-pane fade" id="envvars" role="tabpanel">
                 <div class="alert-box alert-info">
-                    <strong>Note:</strong> Environment variable data is not available. This feature requires PARSE_BPMN_CONTENT=true and EXTRACT_IFLOW_CONTENT=true in configuration.
+                    <strong>Note:</strong> Environment variable data is not available. This feature requires PARSE_IFLW_CONTENT=true and EXTRACT_IFLOW_CONTENT=true in configuration.
                 </div>
             </div>"""
         
@@ -1348,9 +1358,13 @@ class NeoToCFFormatter:
         cert_data = data.get('certificate_mappings', {})
         
         if not cert_data.get('available', False):
-            return """            <div class="tab-pane fade" id="certmappings" role="tabpanel">
+            if cert_data.get('skipped_cf'):
+                msg = "Certificate-to-user mappings are not applicable to Cloud Foundry (CF) subaccounts. This feature is only available for NEO subaccounts, where certificate-based user authentication requires explicit mapping configuration."
+            else:
+                msg = "Certificate-to-user mapping data is not available. This may indicate a CF subaccount (where this feature does not exist) or that the data was not downloaded."
+            return f"""            <div class="tab-pane fade" id="certmappings" role="tabpanel">
                 <div class="alert-box alert-info">
-                    <strong>Note:</strong> Certificate-to-user mappings are not available. This feature is only available for NEO subaccounts. CF subaccounts use different authentication mechanisms.
+                    <strong>Note:</strong> {msg}
                 </div>
             </div>"""
         
@@ -1539,7 +1553,79 @@ class NeoToCFFormatter:
         
         # If no CN found, return first 50 chars
         return dn[:50] + '...' if len(dn) > 50 else dn
-    
+
+    def _generate_tab_download_errors(self, data: Dict[str, Any]) -> str:
+        """Generate download errors tab"""
+        err_data = data.get('download_errors', {})
+
+        if not err_data.get('available', False):
+            return """            <div class="tab-pane fade" id="downloaderrors" role="tabpanel">
+                <div class="alert-box alert-info">
+                    <strong>Note:</strong> No download error data is available for this run.
+                </div>
+            </div>"""
+
+        errors = err_data.get('errors', [])
+        stats = err_data.get('stats', {})
+
+        if not errors:
+            return """            <div class="tab-pane fade" id="downloaderrors" role="tabpanel">
+                <div class="alert-box" style="background-color:#E6F4EA;border-left:4px solid #2E844A;padding:16px;border-radius:4px;">
+                    <strong style="color:#2E844A;">All downloads completed successfully.</strong> No errors were encountered during data extraction.
+                </div>
+            </div>"""
+
+        total = stats.get('total_errors', 0)
+        by_type = stats.get('by_artifact_type', {})
+        by_error = stats.get('by_error_type', {})
+
+        html = f"""            <div class="tab-pane fade" id="downloaderrors" role="tabpanel">
+                <div class="content-card">
+                    <h3>⚠️ Download Errors ({total})</h3>
+                    <table class="table table-sm table-hover dataTable" id="downloadErrorsTable">
+                        <thead>
+                            <tr>
+                                <th style="width:22%">Package / Artifact</th>
+                                <th style="width:14%">Type</th>
+                                <th style="width:8%" class="text-center">Error Code</th>
+                                <th style="width:14%">Error Type</th>
+                                <th style="width:32%">Error Message</th>
+                                <th style="width:10%">Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody>"""
+
+        _error_colors = {
+            '403': ('#FFF4E5', '#8B4513'),
+            '401': ('#F8D7DA', '#721C24'),
+            '404': ('#F8D7DA', '#721C24'),
+            '500': ('#F8D7DA', '#721C24'),
+        }
+        for err in errors:
+            code = str(err.get('error_code', ''))
+            ec_bg, ec_color = _error_colors.get(code, ('#F5F5F5', '#6A6D70'))
+            ts = err.get('timestamp', '')
+            if 'T' in ts:
+                ts = ts.split('T')[0] + ' ' + ts.split('T')[1][:8]
+
+            html += f"""
+                            <tr>
+                                <td>{err.get('package_id', 'Unknown')}</td>
+                                <td>{err.get('artifact_type', '').replace('_', ' ').title()}</td>
+                                <td class="text-center"><span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:{ec_bg};color:{ec_color};">{code}</span></td>
+                                <td>{err.get('error_type', '').replace('_', ' ').title()}</td>
+                                <td style="font-size:12px;">{err.get('error_message', '')}</td>
+                                <td style="font-size:11px;color:#5E696E;">{ts}</td>
+                            </tr>"""
+
+        html += """
+                        </tbody>
+                    </table>
+                </div>
+            </div>"""
+
+        return html
+
     def _generate_footer(self, data: Dict[str, Any]) -> str:
         """Generate report footer"""
         metadata = data.get('metadata', {})
@@ -1573,7 +1659,8 @@ class NeoToCFFormatter:
     
     <script>
         var _tenantId = "__TENANT_ID__";
-        
+        var _extractionDate = "__EXTRACTION_DATE__";
+
         $(document).ready(function() {
             // Returns a CSV button config with a per-table filename
             function makeBtn(tableName) {
@@ -1581,7 +1668,7 @@ class NeoToCFFormatter:
                     extend: 'csvHtml5',
                     text: '\U0001F4C4 Export CSV',
                     className: 'buttons-csv',
-                    filename: _tenantId + '_' + tableName
+                    filename: _tenantId + '_' + _extractionDate + '_' + tableName
                 }];
             }
             
@@ -1636,6 +1723,11 @@ class NeoToCFFormatter:
             $('#keystoreTable').DataTable($.extend({}, commonConfig, {
                 order: [[8, 'desc'], [5, 'asc']],
                 buttons: makeBtn('Keystore')
+            }));
+
+            $('#downloadErrorsTable').DataTable($.extend({}, commonConfig, {
+                order: [[5, 'desc']],
+                buttons: makeBtn('Download_Errors')
             }));
             
             // IFlow usage drill-down click handler
@@ -1713,4 +1805,7 @@ class NeoToCFFormatter:
         });
     </script>"""
         
-        return js.replace('__TENANT_ID__', tenant_safe)
+        # Extract date portion from captured_at for CSV filenames (YYYYMMDD_HHMMSS)
+        extraction_date = self.captured_at[:10].replace('-', '') if self.captured_at else ''
+
+        return js.replace('__TENANT_ID__', tenant_safe).replace('__EXTRACTION_DATE__', extraction_date)

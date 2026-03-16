@@ -183,6 +183,15 @@ ENV_FIELDS = [
         "depends_on": {"EXECUTION_MODE": "REPORT_ONLY"},
     },
 
+    # ── Report Selection ──────────────────────────────────────────────────────────
+    {
+        "key": "REPORT_NEO_TO_CF",
+        "label": "NEO to CF Migration Assessment",
+        "type": "checkbox",
+        "section": "Report Selection",
+        "default": "true",
+    },
+
     # ── Runtime Settings ─────────────────────────────────────────────────────────
     {
         "key": "RUNS_DIR",

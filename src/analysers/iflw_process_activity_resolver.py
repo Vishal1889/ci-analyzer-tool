@@ -1,6 +1,6 @@
 """
-BPMN Process Activity Resolver for SAP Cloud Integration Analyzer Tool
-Resolves configuration placeholders in BPMN activity properties
+IFLW Process Activity Resolver for SAP Cloud Integration Analyzer Tool
+Resolves configuration placeholders in IFLW activity properties
 """
 
 import re
@@ -10,7 +10,7 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class BpmnProcessActivityResolver:
+class IflwProcessActivityResolver:
     """
     Resolves configuration placeholders in strings.
     Placeholder format: {{key}}
@@ -84,7 +84,7 @@ class BpmnProcessActivityResolver:
                 return match.group(0)  # Return original {{key}}
         
         # Replace all placeholders
-        resolved = BpmnProcessActivityResolver.PLACEHOLDER_PATTERN.sub(
+        resolved = IflwProcessActivityResolver.PLACEHOLDER_PATTERN.sub(
             replace_placeholder, 
             input_str
         )
@@ -117,16 +117,16 @@ class BpmnProcessActivityResolver:
                 value = item.get(value_field)
                 default = item.get(default_field)
                 
-                item[value_field + 'Resolved'] = BpmnProcessActivityResolver.resolveOnePass(value, cfg)
-                item[default_field + 'Resolved'] = BpmnProcessActivityResolver.resolveOnePass(default, cfg)
+                item[value_field + 'Resolved'] = IflwProcessActivityResolver.resolveOnePass(value, cfg)
+                item[default_field + 'Resolved'] = IflwProcessActivityResolver.resolveOnePass(default, cfg)
             else:
                 # Object attribute access
                 value = getattr(item, value_field, None)
                 default = getattr(item, default_field, None)
                 
                 setattr(item, value_field + '_resolved', 
-                       BpmnProcessActivityResolver.resolveOnePass(value, cfg))
+                       IflwProcessActivityResolver.resolveOnePass(value, cfg))
                 setattr(item, default_field + '_resolved',
-                       BpmnProcessActivityResolver.resolveOnePass(default, cfg))
+                       IflwProcessActivityResolver.resolveOnePass(default, cfg))
         
         return items
