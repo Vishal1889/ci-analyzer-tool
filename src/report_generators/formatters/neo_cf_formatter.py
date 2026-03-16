@@ -6,6 +6,7 @@ SAP BTP themed HTML report generator with compact design
 from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime
+import json
 
 
 class NeoToCFFormatter:
@@ -65,8 +66,8 @@ class NeoToCFFormatter:
         <!-- Tab Content -->
         <div class="tab-content" id="reportTabContent">
 {self._generate_tab_executive_summary(data)}
-{self._generate_tab_package_analysis(data)}
 {self._generate_tab_version_comparison(data)}
+{self._generate_tab_package_analysis(data)}
 {self._generate_tab_deployment_status(data)}
 {self._generate_tab_systems_adapters(data)}
 {self._generate_tab_environment_variables(data)}
@@ -582,21 +583,21 @@ class NeoToCFFormatter:
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="packages-tab" data-bs-toggle="tab" 
-                        data-bs-target="#packages" type="button" role="tab">
-                    📦 Package Analysis
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="versions-tab" data-bs-toggle="tab" 
+                <button class="nav-link" id="versions-tab" data-bs-toggle="tab"
                         data-bs-target="#versions" type="button" role="tab">
                     📋 Standard Content Analysis
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="deployment-tab" data-bs-toggle="tab" 
+                <button class="nav-link" id="packages-tab" data-bs-toggle="tab"
+                        data-bs-target="#packages" type="button" role="tab">
+                    📦 Package Analysis
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="deployment-tab" data-bs-toggle="tab"
                         data-bs-target="#deployment" type="button" role="tab">
-                    📊 Deployment Status
+                    📊 Artifact Analysis
                 </button>
             </li>
             <li class="nav-item" role="presentation">
@@ -640,10 +641,11 @@ class NeoToCFFormatter:
         for item in data_items:
             if item['count'] > 0:
                 percentage = (item['count'] / total) * 100
-                # Only show label if segment is wide enough
-                label = f"{percentage:.0f}%" if percentage >= 8 else ""
+                label = f"{percentage:.0f}%"
+                # For narrow segments, let the label overflow visibly
+                overflow_style = "overflow:visible;white-space:nowrap;" if percentage < 8 else ""
                 segments_html += f"""
-                    <div class="bar-segment" style="flex: {percentage}; background-color: {item['color']};" 
+                    <div class="bar-segment" style="flex: {percentage}; background-color: {item['color']};{overflow_style}"
                          title="{item['type']}: {item['count']} ({percentage:.1f}%)">
                         <span>{label}</span>
                     </div>"""
@@ -698,65 +700,7 @@ class NeoToCFFormatter:
                         </div>
                     </div>
                 </div>"""
-        
-        # MRS Section (only when pre-computed scores are available)
-        mci_summary = kpis.get('mci_summary', {})
-        if kpis.get('mci_available') and mci_summary:
-            overall_mrs  = mci_summary.get('overall_mrs', 0)
-            custom_mrs   = mci_summary.get('custom_mrs', 0)
-            standard_mrs = mci_summary.get('standard_mrs', 0)
-            tag_counts   = mci_summary.get('tag_counts', {})
-            
-            # Colour band for overall MRS (higher = better = greener)
-            if overall_mrs >= 76:
-                mrs_color, mrs_label = 'var(--sap-green)', '🟢 Ready'
-            elif overall_mrs >= 51:
-                mrs_color, mrs_label = '#F0AB00', '🟡 Mostly Ready'
-            elif overall_mrs >= 26:
-                mrs_color, mrs_label = '#E65100', '🟠 Needs Work'
-            else:
-                mrs_color, mrs_label = 'var(--sap-red)', '🔴 Not Ready'
-            
-            kpi_html += f"""
-                <div class="content-card">
-                    <h3>🎯 Migration Readiness Score (MRS)</h3>
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-4">
-                            <div class="kpi-card" style="border-left:4px solid {mrs_color};text-align:center;">
-                                <div style="font-size:48px;font-weight:700;color:{mrs_color};line-height:1.1;">{overall_mrs}</div>
-                                <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--sap-text-gray);margin-top:4px;">Overall Readiness Score <span style="font-weight:400;">(0–100)</span></div>
-                                <div style="font-size:13px;font-weight:600;color:{mrs_color};margin-top:6px;">{mrs_label}</div>
-                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:2px;">Higher score = more ready for migration</div>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="kpi-card" style="border-left:3px solid var(--sap-blue);">
-                                <div class="kpi-number" style="color:var(--sap-blue);">{custom_mrs}</div>
-                                <div class="kpi-label">Custom Packages Readiness</div>
-                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:4px;">Avg readiness of custom packages</div>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="kpi-card" style="border-left:3px solid #5E696E;">
-                                <div class="kpi-number" style="color:#5E696E;">{standard_mrs}</div>
-                                <div class="kpi-label">Standard Packages Readiness</div>
-                                <div style="font-size:11px;color:var(--sap-text-gray);margin-top:4px;">Avg readiness of standard packages</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="row g-3">
-                        <div class="col">
-                            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-                                <span style="font-size:12px;color:var(--sap-text-gray);font-weight:600;">Readiness Distribution:</span>
-                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#E6F4EA;color:#2E844A;">🟢 Ready (76–100): {tag_counts.get('Ready', 0)} pkgs</span>
-                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#FFF3CD;color:#856404;">🟡 Mostly Ready (51–75): {tag_counts.get('Mostly Ready', 0)} pkgs</span>
-                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#FFE0B2;color:#E65100;">🟠 Needs Work (26–50): {tag_counts.get('Needs Work', 0)} pkgs</span>
-                                <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:#F8D7DA;color:#721C24;">🔴 Not Ready (0–25): {tag_counts.get('Not Ready', 0)} pkgs</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>"""
-        
+
         # Alerts
         alerts = dashboard.get('alerts', [])
         if alerts:
@@ -832,12 +776,19 @@ class NeoToCFFormatter:
         count_editable   = sum(1 for p in packages if p.get('package_type') == 'Standard (Editable)')
         count_readonly   = sum(1 for p in packages if p.get('package_type') == 'Standard (Configure-Only)')
         count_custom     = sum(1 for p in packages if p.get('package_type') == 'Custom')
-        
-        # MRS stats derived from per-package data
-        scored_pkgs   = [p for p in packages if p.get('readiness_score') is not None]
-        mrs_available = len(scored_pkgs) > 0
-        avg_mrs       = round(sum(p['readiness_score'] for p in scored_pkgs) / len(scored_pkgs)) if scored_pkgs else None
-        
+
+        # Readiness counts for percentage bar
+        pkg_green  = sum(1 for p in packages if p.get('migration_readiness') == 'Green')
+        pkg_amber  = sum(1 for p in packages if p.get('migration_readiness') == 'Amber')
+        pkg_red    = sum(1 for p in packages if p.get('migration_readiness') == 'Red')
+
+        readiness_bar_data = [
+            {'type': 'Ready',         'count': pkg_green, 'color': '#2E844A'},
+            {'type': 'Needs Check',   'count': pkg_amber, 'color': '#F0AB00'},
+            {'type': 'Action Needed', 'count': pkg_red,   'color': '#E52929'},
+        ]
+        readiness_bar = self._generate_stacked_bar(readiness_bar_data, "📊 Package Migration Readiness Distribution")
+
         html = f"""            <div class="tab-pane fade" id="packages" role="tabpanel">
                 <div class="row g-3 mb-4">
                     <div class="col">
@@ -864,17 +815,25 @@ class NeoToCFFormatter:
                             <div class="kpi-label">Custom</div>
                         </div>
                     </div>
-                    {'<div class="col"><div class="kpi-card" style="border-left:3px solid var(--sap-green);"><div class="kpi-number" style="color:var(--sap-green);">' + str(avg_mrs) + '</div><div class="kpi-label">Avg Readiness Score</div></div></div>' if mrs_available and avg_mrs is not None else ''}
                 </div>
-                
+
+                {readiness_bar}
+
                 <div class="content-card">
                     <h3>📦 Package Details</h3>
+                    <div style="display:flex;gap:14px;align-items:center;margin-bottom:10px;font-size:12px;color:#5E696E;">
+                        <span style="font-weight:600;">Migration Readiness:</span>
+                        <span>🟢 Ready</span>
+                        <span>🟡 Needs Check</span>
+                        <span>🔴 Action Needed</span>
+                        <span style="font-style:italic;">(click indicator for details)</span>
+                    </div>
                     <table class="table table-sm table-hover dataTable" id="packagesTable">
                         <thead>
                             <tr>
-                                <th style="width:33%">Package Name</th>
+                                <th style="width:30%">Package Name</th>
                                 <th style="width:14%">Package Type</th>
-                                <th style="width:11%" class="text-center">Readiness Score</th>
+                                <th style="width:10%" class="text-center">Readiness</th>
                                 <th style="width:8%" class="text-center">IFlows ({total_iflows})</th>
                                 <th style="width:8%" class="text-center">Scripts ({total_scripts})</th>
                                 <th style="width:8%" class="text-center">Msg Maps ({total_msg_maps})</th>
@@ -883,43 +842,28 @@ class NeoToCFFormatter:
                             </tr>
                         </thead>
                         <tbody>"""
-        
+
         _pkg_styles = {
             'Custom':                    ('#EDF5FA', '#0A6ED1'),
             'Standard (Editable)':       ('#F5F5F5', '#5E696E'),
             'Standard (Configure-Only)': ('#E6F4EA', '#2E844A'),
         }
-        _readiness_styles = {
-            'Ready':        ('#E6F4EA', '#2E844A', '🟢'),
-            'Mostly Ready': ('#FFF3CD', '#856404', '🟡'),
-            'Needs Work':   ('#FFE0B2', '#E65100', '🟠'),
-            'Not Ready':    ('#F8D7DA', '#721C24', '🔴'),
-        }
+        _readiness_icon = {'Green': ('🟢', 3), 'Amber': ('🟡', 2), 'Red': ('🔴', 1)}
         for pkg in packages:
             pkg_type = pkg.get('package_type', 'Custom')
             pt_bg, pt_color = _pkg_styles.get(pkg_type, ('#F5F5F5', '#6A6D70'))
-            
-            # Readiness Score cell
-            tag   = pkg.get('readiness_tag')
-            score = pkg.get('readiness_score')
-            if tag and score is not None:
-                rs_bg, rs_color, rs_icon = _readiness_styles.get(tag, ('#F5F5F5', '#6A6D70', ''))
-                readiness_cell = (
-                    f'<span style="display:inline-block;padding:2px 7px;border-radius:3px;'
-                    f'font-size:11px;font-weight:600;background:{rs_bg};color:{rs_color};">'
-                    f'{rs_icon} {tag}</span>'
-                    f' <span style="font-size:11px;color:var(--sap-text-gray);">{int(score)}</span>'
-                )
-                sort_val = score
-            else:
-                readiness_cell = '<span style="color:var(--sap-text-gray);font-size:12px;">—</span>'
-                sort_val = -1
-            
+
+            readiness = pkg.get('migration_readiness', 'Green')
+            r_icon, r_sort = _readiness_icon.get(readiness, ('⚪', 0))
+            checks_json = json.dumps(pkg.get('readiness_checks', []), ensure_ascii=False).replace('"', '&quot;')
+            pkg_name = pkg.get('package_name', '')
+            pkg_name_escaped = pkg_name.replace('"', '&quot;')
+
             html += f"""
                             <tr>
-                                <td>{pkg.get('package_name', '')}</td>
+                                <td>{pkg_name}</td>
                                 <td><span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:{pt_bg};color:{pt_color};">{pkg_type}</span></td>
-                                <td class="text-center" data-order="{sort_val}">{readiness_cell}</td>
+                                <td class="text-center" data-order="{r_sort}"><a href="#" class="readiness-badge" data-name="{pkg_name_escaped}" data-checks="{checks_json}" style="text-decoration:none;font-size:16px;cursor:pointer;">{r_icon}</a></td>
                                 <td class="text-center">{pkg.get('iflow_count', 0)}</td>
                                 <td class="text-center">{pkg.get('script_count', 0)}</td>
                                 <td class="text-center">{pkg.get('msg_map_count', 0)}</td>
@@ -1005,71 +949,103 @@ class NeoToCFFormatter:
         return html
     
     def _generate_tab_deployment_status(self, data: Dict[str, Any]) -> str:
-        """Generate deployment status tab"""
+        """Generate artifact analysis tab (formerly deployment status)"""
         versions = data.get('versions', {})
         deployments = versions.get('artifact_deployments', [])
         stats = versions.get('deployment_stats', {})
-        
-        # Prepare deployment data for stacked bar
-        deploy_data = [
-            {'type': 'Synced', 'count': stats.get('synced', 0), 'color': '#2E844A'},
-            {'type': 'Out of Sync', 'count': stats.get('out_of_sync', 0), 'color': '#F0AB00'},
-            {'type': 'Not Deployed', 'count': stats.get('not_deployed', 0), 'color': '#6A6D70'}
+
+        # Artifact type counts
+        count_iflows  = sum(1 for d in deployments if d.get('artifact_type') == 'Integration Flow')
+        count_scripts = sum(1 for d in deployments if d.get('artifact_type') == 'Script Collection')
+        count_mm      = sum(1 for d in deployments if d.get('artifact_type') == 'Message Mapping')
+        count_vm      = sum(1 for d in deployments if d.get('artifact_type') == 'Value Mapping')
+        total_artifacts = len(deployments)
+
+        # Readiness counts for stacked bar
+        r_green = stats.get('readiness_green', 0)
+        r_amber = stats.get('readiness_amber', 0)
+        r_red   = stats.get('readiness_red', 0)
+        readiness_bar_data = [
+            {'type': 'Ready',         'count': r_green, 'color': '#2E844A'},
+            {'type': 'Needs Check',   'count': r_amber, 'color': '#F0AB00'},
+            {'type': 'Action Needed', 'count': r_red,   'color': '#E52929'},
         ]
-        deploy_bar = self._generate_stacked_bar(deploy_data, "📊 Deployment Status Distribution")
-        
+        readiness_bar = self._generate_stacked_bar(readiness_bar_data, "📊 Migration Readiness Distribution")
+
         html = f"""            <div class="tab-pane fade" id="deployment" role="tabpanel">
                 <div class="row g-3 mb-4">
-                    <div class="col-md-4">
+                    <div class="col">
+                        <div class="kpi-card">
+                            <div class="kpi-number">{total_artifacts}</div>
+                            <div class="kpi-label">Total Artifacts</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="kpi-card" style="border-left: 3px solid var(--sap-blue);">
+                            <div class="kpi-number" style="color: var(--sap-blue);">{count_iflows}</div>
+                            <div class="kpi-label">Integration Flows</div>
+                        </div>
+                    </div>
+                    <div class="col">
                         <div class="kpi-card" style="border-left: 3px solid var(--sap-green);">
-                            <div class="kpi-number" style="color: var(--sap-green);">{stats.get('synced', 0)}</div>
-                            <div class="kpi-label">In Sync</div>
+                            <div class="kpi-number" style="color: var(--sap-green);">{count_scripts}</div>
+                            <div class="kpi-label">Script Collections</div>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col">
                         <div class="kpi-card" style="border-left: 3px solid var(--sap-orange);">
-                            <div class="kpi-number" style="color: var(--sap-orange);">{stats.get('out_of_sync', 0)}</div>
-                            <div class="kpi-label">Out of Sync</div>
+                            <div class="kpi-number" style="color: var(--sap-orange);">{count_mm}</div>
+                            <div class="kpi-label">Message Mappings</div>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="kpi-card" style="border-left: 3px solid var(--sap-text-gray);">
-                            <div class="kpi-number" style="color: var(--sap-text-gray);">{stats.get('not_deployed', 0)}</div>
-                            <div class="kpi-label">Not Deployed</div>
+                    <div class="col">
+                        <div class="kpi-card" style="border-left: 3px solid #5E696E;">
+                            <div class="kpi-number" style="color: #5E696E;">{count_vm}</div>
+                            <div class="kpi-label">Value Mappings</div>
                         </div>
                     </div>
                 </div>
-                
-                {deploy_bar}
-                
+
+                {readiness_bar}
+
                 <div class="content-card">
-                    <h3>📊 Deployment Status Details</h3>
+                    <h3>📋 Artifact Details</h3>
+                    <div style="display:flex;gap:14px;align-items:center;margin-bottom:10px;font-size:12px;color:#5E696E;">
+                        <span style="font-weight:600;">Migration Readiness:</span>
+                        <span>🟢 Ready</span>
+                        <span>🟡 Needs Check</span>
+                        <span>🔴 Action Needed</span>
+                        <span style="font-style:italic;">(click indicator for details)</span>
+                    </div>
                     <table class="table table-sm table-hover dataTable" id="deploymentsTable">
                         <thead>
                             <tr>
                                 <th style="width:28%">Artifact Name</th>
                                 <th style="width:14%">Artifact Type</th>
-                                <th style="width:28%">Package Name</th>
+                                <th style="width:26%">Package Name</th>
+                                <th style="width:8%" class="text-center">Readiness</th>
                                 <th style="width:12%" class="text-center">Design Version</th>
                                 <th style="width:12%" class="text-center">Deployed Version</th>
-                                <th style="width:6%" class="text-center">Status</th>
                             </tr>
                         </thead>
                         <tbody>"""
-        
+
+        _readiness_icon = {'Green': ('🟢', 3), 'Amber': ('🟡', 2), 'Red': ('🔴', 1)}
         for dep in deployments:
-            status = dep.get('deployment_status', 'Unknown')
-            status_class = 'status-inSync' if status == 'In Sync' else ('status-outofSync' if status == 'Out of Sync' else 'status-notDeployed')
-            sort_order = 1 if status == 'Out of Sync' else (2 if status == 'Not Deployed' else 3)
-            
+            readiness = dep.get('migration_readiness', 'Green')
+            r_icon, r_sort = _readiness_icon.get(readiness, ('⚪', 0))
+            checks_json = json.dumps(dep.get('readiness_checks', []), ensure_ascii=False).replace('"', '&quot;')
+            art_name = dep.get('artifact_name', 'Unknown')
+            art_name_escaped = art_name.replace('"', '&quot;')
+
             html += f"""
                             <tr>
-                                <td>{dep.get('artifact_name', 'Unknown')}</td>
+                                <td>{art_name}</td>
                                 <td>{dep.get('artifact_type', 'Unknown')}</td>
                                 <td>{dep.get('package_name', 'Unknown')}</td>
+                                <td class="text-center" data-order="{r_sort}"><a href="#" class="readiness-badge" data-name="{art_name_escaped}" data-checks="{checks_json}" style="text-decoration:none;font-size:16px;cursor:pointer;">{r_icon}</a></td>
                                 <td class="text-center">{dep.get('design_version', 'N/A')}</td>
                                 <td class="text-center">{dep.get('runtime_version') or 'Not Deployed'}</td>
-                                <td class="text-center" data-order="{sort_order}"><span class="status-badge {status_class}">{status}</span></td>
                             </tr>"""
         
         html += """
@@ -1086,17 +1062,22 @@ class NeoToCFFormatter:
         systems = systems_data.get('systems', [])
         adapters = systems_data.get('adapters', [])
         stats = systems_data.get('stats', {})
+
+        # Adapter column totals
+        total_sender   = sum(a.get('sender_count', 0) for a in adapters)
+        total_receiver = sum(a.get('receiver_count', 0) for a in adapters)
+        total_all      = sum(a.get('total_count', 0) for a in adapters)
         
-        # Prepare adapter data for stacked bar (top 8)
-        adapter_colors = ['#0A6ED1', '#2E844A', '#F0AB00', '#6A6D70', '#E52929', '#00A8E1', '#FF9500', '#8B8B8B']
+        # Prepare adapter data for stacked bar (top 10)
+        adapter_colors = ['#0A6ED1', '#2E844A', '#F0AB00', '#6A6D70', '#E52929', '#00A8E1', '#FF9500', '#8B8B8B', '#7B61FF', '#00B4D8']
         adapter_data = []
-        for i, adapter in enumerate(adapters[:8]):
+        for i, adapter in enumerate(adapters[:10]):
             adapter_data.append({
                 'type': adapter.get('adapter_type', 'Unknown'),
                 'count': adapter.get('total_count', 0),
                 'color': adapter_colors[i] if i < len(adapter_colors) else '#8B8B8B'
             })
-        adapter_bar = self._generate_stacked_bar(adapter_data, "🔌 Top Adapter Types Distribution")
+        adapter_bar = self._generate_stacked_bar(adapter_data, "🔌 Top 10 Adapter Types Distribution")
         
         html = f"""            <div class="tab-pane fade" id="systems" role="tabpanel">
                 <div class="row g-3 mb-4">
@@ -1124,6 +1105,7 @@ class NeoToCFFormatter:
                 
                 <div class="content-card">
                     <h3>🌐 Connected Systems</h3>
+                    <div style="font-size:12px;color:#5E696E;margin-bottom:10px;font-style:italic;">Click the numbered badges to see which IFlows use each system.</div>
                     <table class="table table-sm table-hover dataTable" id="systemsTable">
                         <thead>
                             <tr>
@@ -1160,30 +1142,48 @@ class NeoToCFFormatter:
                                 <td class="text-center">{count_cell}</td>
                             </tr>"""
         
-        html += """
+        html += f"""
                         </tbody>
                     </table>
                 </div>
-                
+
                 <div class="content-card mt-4">
                     <h3>🔌 Adapter Types Summary</h3>
+                    <div style="font-size:12px;color:#5E696E;margin-bottom:10px;font-style:italic;">Click the Sender or Receiver counts to see which IFlows use each adapter.</div>
                     <table class="table table-sm table-hover dataTable" id="adaptersTable">
                         <thead>
                             <tr>
                                 <th>Adapter Type</th>
-                                <th class="text-center">Sender</th>
-                                <th class="text-center">Receiver</th>
-                                <th class="text-center">Total</th>
+                                <th class="text-center">Sender ({total_sender})</th>
+                                <th class="text-center">Receiver ({total_receiver})</th>
+                                <th class="text-center">Total ({total_all})</th>
                             </tr>
                         </thead>
                         <tbody>"""
         
         for adapter in adapters:
+            at = adapter.get('adapter_type', 'Unknown')
+            at_escaped = at.replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+            sender_count = adapter.get('sender_count', 0)
+            receiver_count = adapter.get('receiver_count', 0)
+            sender_iflows = (adapter.get('sender_iflows') or '').replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+            receiver_iflows = (adapter.get('receiver_iflows') or '').replace('&', '&amp;').replace('"', '&quot;').replace("'", '&#39;')
+
+            if sender_count > 0 and sender_iflows:
+                sender_cell = f'<a href="#" class="badge bg-primary text-white iflow-usage-btn" data-iflows="{sender_iflows}" data-system="{at_escaped}" data-address="Sender" style="text-decoration:none;cursor:pointer;">{sender_count}</a>'
+            else:
+                sender_cell = str(sender_count)
+
+            if receiver_count > 0 and receiver_iflows:
+                receiver_cell = f'<a href="#" class="badge bg-primary text-white iflow-usage-btn" data-iflows="{receiver_iflows}" data-system="{at_escaped}" data-address="Receiver" style="text-decoration:none;cursor:pointer;">{receiver_count}</a>'
+            else:
+                receiver_cell = str(receiver_count)
+
             html += f"""
                             <tr>
-                                <td>{adapter.get('adapter_type', 'Unknown')}</td>
-                                <td class="text-center">{adapter.get('sender_count', 0)}</td>
-                                <td class="text-center">{adapter.get('receiver_count', 0)}</td>
+                                <td>{at}</td>
+                                <td class="text-center">{sender_cell}</td>
+                                <td class="text-center">{receiver_cell}</td>
                                 <td class="text-center"><strong>{adapter.get('total_count', 0)}</strong></td>
                             </tr>"""
         
@@ -1204,6 +1204,22 @@ class NeoToCFFormatter:
                             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
                         <div class="modal-body" id="modalIFlowList"></div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Readiness Detail Modal -->
+            <div class="modal fade" id="readinessModal" tabindex="-1" aria-labelledby="readinessModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header" style="background-color: #EDF5FA; border-bottom: 1px solid #E5E5E5;">
+                            <h5 class="modal-title" id="readinessModalLabel" style="color: #0854A0;">Migration Readiness</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body" id="readinessModalBody"></div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
                         </div>
@@ -1240,32 +1256,32 @@ class NeoToCFFormatter:
         html = f"""            <div class="tab-pane fade" id="envvars" role="tabpanel">
                 <div class="row g-3 mb-4">
                     <div class="col">
-                        <div class="kpi-card">
-                            <div class="kpi-number">{unique_vars_count}</div>
+                        <div class="kpi-card" style="border-left:3px solid var(--sap-blue);">
+                            <div class="kpi-number" style="color:var(--sap-blue);">{unique_vars_count}</div>
                             <div class="kpi-label">Unique HC_ Variables</div>
                         </div>
                     </div>
                     <div class="col">
                         <div class="kpi-card">
                             <div class="kpi-number">{stats.get('total_files', 0)}</div>
-                            <div class="kpi-label">Total</div>
+                            <div class="kpi-label">Total Files</div>
                         </div>
                     </div>
                     <div class="col">
-                        <div class="kpi-card">
-                            <div class="kpi-number">{by_file_type.get('groovyScript', 0)}</div>
+                        <div class="kpi-card" style="border-left:3px solid #2E844A;">
+                            <div class="kpi-number" style="color:#2E844A;">{by_file_type.get('groovyScript', 0)}</div>
                             <div class="kpi-label">Groovy Script</div>
                         </div>
                     </div>
                     <div class="col">
-                        <div class="kpi-card">
-                            <div class="kpi-number">{by_file_type.get('javascript', 0)}</div>
+                        <div class="kpi-card" style="border-left:3px solid #8B4513;">
+                            <div class="kpi-number" style="color:#8B4513;">{by_file_type.get('javascript', 0)}</div>
                             <div class="kpi-label">JavaScript</div>
                         </div>
                     </div>
                     <div class="col">
-                        <div class="kpi-card">
-                            <div class="kpi-number">{by_file_type.get('xslt', 0)}</div>
+                        <div class="kpi-card" style="border-left:3px solid #0854A0;">
+                            <div class="kpi-number" style="color:#0854A0;">{by_file_type.get('xslt', 0)}</div>
                             <div class="kpi-label">XSLT</div>
                         </div>
                     </div>
@@ -1301,6 +1317,12 @@ class NeoToCFFormatter:
             raw_ft  = var.get('file_type', '')
             ft_label, ft_bg, ft_color = _ft_styles.get(raw_ft, (raw_ft.upper() if raw_ft else 'UNKNOWN', '#F5F5F5', '#6A6D70'))
             ft_badge = f'<span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:{ft_bg};color:{ft_color};">{ft_label}</span>'
+
+            _parent_type_labels = {'Iflow': 'Integration Flow', 'IFlow': 'Integration Flow',
+                                   'ScriptCollection': 'Script Collection',
+                                   'PartnerDirectory': 'Partner Directory'}
+            raw_pt = var.get('parent_type', '')
+            parent_type_display = _parent_type_labels.get(raw_pt, raw_pt)
             
             html += f"""
                             <tr>
@@ -1308,7 +1330,7 @@ class NeoToCFFormatter:
                                 <td>{ft_badge}</td>
                                 <td class="text-center"><strong>{var.get('var_count', 0)}</strong></td>
                                 <td><code>{var_list}</code></td>
-                                <td>{var.get('parent_type', '')}</td>
+                                <td>{parent_type_display}</td>
                                 <td>{var.get('parent_name', 'Unknown')}</td>
                                 <td>{var.get('package_name', 'Unknown')}</td>
                             </tr>"""
@@ -1584,9 +1606,9 @@ class NeoToCFFormatter:
             }));
             
             $('#deploymentsTable').DataTable($.extend({}, commonConfig, {
-                order: [[5, 'asc'], [0, 'asc']],
+                order: [[3, 'asc'], [0, 'asc']],
                 autoWidth: false,
-                buttons: makeBtn('Deployment_Status')
+                buttons: makeBtn('Artifact_Analysis')
             }));
             
             $('#systemsTable').DataTable($.extend({}, commonConfig, {
@@ -1656,6 +1678,37 @@ class NeoToCFFormatter:
             // Remove row highlight when the modal is dismissed
             document.getElementById('iflowUsageModal').addEventListener('hidden.bs.modal', function() {
                 $('.iflow-btn-row-active').removeClass('iflow-btn-row-active');
+            });
+
+            // Readiness badge click handler — opens modal with check details
+            $(document).on('click', '.readiness-badge', function(e) {
+                e.preventDefault();
+                var name = $(this).data('name');
+                var checksRaw = $(this).data('checks');
+                var checks = (typeof checksRaw === 'string') ? JSON.parse(checksRaw) : checksRaw;
+                var statusIcon = {Green: '🟢', Amber: '🟡', Red: '🔴'};
+                var statusColor = {Green: '#2E844A', Amber: '#856404', Red: '#C9190B'};
+                var html = '<table class="table table-sm mb-0"><tbody>';
+                checks.forEach(function(c) {
+                    var icon = statusIcon[c.status] || '⚪';
+                    var color = statusColor[c.status] || '#6A6D70';
+                    html += '<tr><td style="width:24px;vertical-align:top;">' + icon + '</td>'
+                        + '<td><strong style="color:' + color + ';">' + $('<span>').text(c.check).html() + '</strong><br>'
+                        + '<span style="font-size:12px;color:#5E696E;">' + $('<span>').text(c.detail).html() + '</span>';
+                    if (c.files && c.files.length > 0) {
+                        html += '<ul style="margin:4px 0 0;padding-left:18px;font-size:11px;color:#5E696E;">';
+                        c.files.forEach(function(f) {
+                            html += '<li>' + $('<span>').text(f).html() + '</li>';
+                        });
+                        html += '</ul>';
+                    }
+                    html += '</td></tr>';
+                });
+                html += '</tbody></table>';
+                $('#readinessModalLabel').text('Migration Readiness — ' + name);
+                $('#readinessModalBody').html(html);
+                var modal = new bootstrap.Modal(document.getElementById('readinessModal'));
+                modal.show();
             });
         });
     </script>"""

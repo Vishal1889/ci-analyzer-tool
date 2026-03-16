@@ -139,58 +139,14 @@ def main():
         
         # Note: Database initialization moved to after BPMN extraction (PHASE 2)
         
-        # Log authentication configuration
-        logger.info("=" * 70)
-        logger.info("Authentication Configuration")
-        logger.info("=" * 70)
-        logger.info(f"Subaccount Type: {config.subaccount_type}")
-        logger.info(f"Authentication Method: {config.auth_type}")
-        if config.auth_type == "BASIC":
-            masked_username = config.basic_auth_username[:3] + '*' * (len(config.basic_auth_username) - 3) \
-                             if len(config.basic_auth_username) > 3 else '***'
-            logger.info(f"Username: {masked_username}")
-        logger.info(f"API Base URL: {config.api_base_url}")
-        logger.info("=" * 70)
-        
-        # Create authentication client using factory
-        logger.info("Setting up authentication...")
-        auth_client = create_auth_client(config)
-        
-        # Test authentication
-        logger.info("Testing authentication...")
-        auth_client.get_access_token()
-        logger.info("Authentication successful!")
-        
-        # Use run-specific download path
-        download_path = config.get_download_path(run_timestamp)
-        logger.info(f"Download directory: {download_path}")
-        
-        # Track download results for batch parsing
-        download_results = {}
-        
-        # Check execution mode
+        # Skip authentication and download setup in REPORT_ONLY mode
         if config.execution_mode == "REPORT_ONLY":
             logger.info("=" * 70)
             logger.info("REPORT_ONLY MODE - Generating reports only")
             logger.info("=" * 70)
             logger.info(f"Using database: {config.report_db_path}")
             logger.info("")
-            
-            # Compute MCI scores on the existing database before generating reports
-            try:
-                from analysers.migration_score_calculator import MigrationScoreCalculator
-                
-                logger.info("Computing Migration Complexity Index (MCI)...")
-                calculator = MigrationScoreCalculator(
-                    db_path=str(config.report_db_path),
-                    tenant_id=config.tenant_id
-                )
-                mci_summary = calculator.compute_and_store()
-                logger.info(f"  MCI: {mci_summary['overall_mci']} ({mci_summary['overall_tag']})")
-                logger.info("")
-            except Exception as e:
-                logger.warning(f"MCI computation failed (non-critical): {e}")
-            
+
             # Generate reports from existing database
             try:
                 logger.info("Generating reports...")
@@ -241,6 +197,33 @@ def main():
                 raise
             
         elif config.execution_mode == "FULL":
+            # Setup authentication (only needed for FULL mode — REPORT_ONLY reads from DB)
+            logger.info("=" * 70)
+            logger.info("Authentication Configuration")
+            logger.info("=" * 70)
+            logger.info(f"Subaccount Type: {config.subaccount_type}")
+            logger.info(f"Authentication Method: {config.auth_type}")
+            if config.auth_type == "BASIC":
+                masked_username = config.basic_auth_username[:3] + '*' * (len(config.basic_auth_username) - 3) \
+                                 if len(config.basic_auth_username) > 3 else '***'
+                logger.info(f"Username: {masked_username}")
+            logger.info(f"API Base URL: {config.api_base_url}")
+            logger.info("=" * 70)
+
+            logger.info("Setting up authentication...")
+            auth_client = create_auth_client(config)
+
+            logger.info("Testing authentication...")
+            auth_client.get_access_token()
+            logger.info("Authentication successful!")
+
+            # Use run-specific download path
+            download_path = config.get_download_path(run_timestamp)
+            logger.info(f"Download directory: {download_path}")
+
+            # Track download results for batch parsing
+            download_results = {}
+
             # PHASE 1: DOWNLOAD ALL APIs
             logger.info("=" * 70)
             logger.info("PHASE 1: DOWNLOADING DATA")
@@ -1375,36 +1358,7 @@ def main():
             except Exception as e:
                 logger.error(f"Database import failed: {e}")
                 raise
-            
-            # PHASE 2.3: COMPUTE MIGRATION COMPLEXITY INDEX (MCI)
-            logger.info("")
-            logger.info("=" * 70)
-            logger.info("PHASE 2.3: COMPUTING MIGRATION COMPLEXITY INDEX (MCI)")
-            logger.info("=" * 70)
-            logger.info("")
-            
-            try:
-                from analysers.migration_score_calculator import MigrationScoreCalculator
-                
-                calculator = MigrationScoreCalculator(
-                    db_path=str(config.get_database_path(run_timestamp)),
-                    tenant_id=config.tenant_id
-                )
-                mci_summary = calculator.compute_and_store()
-                
-                logger.info(f"  Overall tenant MCI : {mci_summary['overall_mci']} ({mci_summary['overall_tag']})")
-                logger.info(f"  Custom packages MCI: {mci_summary['custom_mci']}")
-                logger.info(f"  Standard pkg MCI   : {mci_summary['standard_mci']}")
-                logger.info(f"  Package tags       : {mci_summary['tag_counts']}")
-                logger.info("")
-                logger.info("=" * 70)
-                logger.info("MCI computation completed!")
-                logger.info("=" * 70)
-                
-            except Exception as e:
-                logger.warning(f"MCI computation failed (non-critical): {e}")
-                logger.warning("Reports will be generated without pre-computed MCI scores")
-            
+
             # PHASE 3: GENERATE REPORTS (only in FULL mode)
             logger.info("")
             logger.info("=" * 70)
@@ -1471,7 +1425,10 @@ def main():
         print("[SUCCESS] Analysis completed successfully!")
         print(f"Run directory: {config.get_run_dir(run_timestamp)}")
         print(f"Log file: {log_setup.log_file}")
-        print(f"Database: {config.get_database_path(run_timestamp)}")
+        if config.execution_mode == "REPORT_ONLY":
+            print(f"Source database: {config.report_db_path}")
+        else:
+            print(f"Database: {config.get_database_path(run_timestamp)}")
         print(f"Finished at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("=" * 70)
         

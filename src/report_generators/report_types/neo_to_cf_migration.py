@@ -34,32 +34,6 @@ class NeoToCFMigrationReport(BaseReport):
         cert_mappings = self._generate_certificate_mappings()
         keystore = self._generate_keystore_view()
         
-        # Load pre-computed MRS scores and enrich dashboard + packages
-        mci_data = self._generate_migration_scores()
-        if mci_data.get('available'):
-            # Inject MRS summary into dashboard KPIs
-            dashboard['kpis']['mci_summary'] = mci_data['summary']
-            dashboard['kpis']['mci_available'] = True
-            # Override the old readiness_score KPI with the rule-based MRS
-            dashboard['kpis']['readiness_score'] = mci_data['summary'].get('overall_mrs', 0)
-            # Enrich per-package data with MRS scores
-            mci_by_pkg = {p['package_id']: p for p in mci_data.get('packages', [])}
-            for pkg in packages.get('packages', []):
-                pkg_id = pkg.get('package_id')
-                mci_pkg = mci_by_pkg.get(pkg_id, {})
-                pkg['readiness_score'] = mci_pkg.get('readiness_score')
-                pkg['readiness_tag'] = mci_pkg.get('readiness_tag')
-                pkg['rule1a'] = mci_pkg.get('rule1a', 0)
-                pkg['rule1b'] = mci_pkg.get('rule1b', 0)
-                pkg['rule2'] = mci_pkg.get('rule2', 0)
-                pkg['rule3'] = mci_pkg.get('rule3', 0)
-                pkg['rule4'] = mci_pkg.get('rule4', 0)
-                pkg['rule5'] = mci_pkg.get('rule5', 0)
-                pkg['rule6'] = mci_pkg.get('rule6', 0)
-        else:
-            dashboard['kpis']['mci_summary'] = {}
-            dashboard['kpis']['mci_available'] = False
-        
         self.report_data = {
             'metadata': metadata,
             'dashboard': dashboard,
@@ -70,7 +44,6 @@ class NeoToCFMigrationReport(BaseReport):
             'environment_variables': env_vars,
             'certificate_mappings': cert_mappings,
             'keystore': keystore,
-            'migration_scores': mci_data
         }
         
         logger.info(f"  Generated migration assessment with {len(self.report_data)} sections")
@@ -146,14 +119,7 @@ class NeoToCFMigrationReport(BaseReport):
         except Exception:
             logger.debug("  bpmn_channel table not available — systems count set to 0")
         
-        # Calculate migration readiness score based on multiple factors
         total_artifacts = iflow_count + script_count + msg_map_count + val_map_count
-        readiness_score = self._calculate_readiness_score(
-            pkg_data=pkg_data,
-            iflow_count=iflow_count,
-            total_artifacts=total_artifacts,
-            systems_count=systems_count
-        )
         
         # Get critical alerts
         alerts = []
@@ -241,8 +207,7 @@ class NeoToCFMigrationReport(BaseReport):
                 'total_msg_maps': msg_map_count,
                 'total_val_maps': val_map_count,
                 'total_artifacts': total_artifacts,
-                'unique_systems': systems_count,
-                'readiness_score': readiness_score
+                'unique_systems': systems_count
             },
             'package_distribution': package_distribution,
             'alerts': alerts,
@@ -346,18 +311,242 @@ class NeoToCFMigrationReport(BaseReport):
         """
         
         packages = self.execute_query(query, (self.tenant_id,))
-        
+
+        # Enrich each package with migration_readiness (Green/Amber/Red) and tooltip
+        self._compute_package_readiness(packages)
+
         # Calculate statistics
         stats = {
             'total_packages': len(packages),
             'total_artifacts': sum(pkg['total_artifacts'] for pkg in packages),
             'avg_artifacts_per_package': round(sum(pkg['total_artifacts'] for pkg in packages) / len(packages), 1) if packages else 0
         }
-        
+
         return {
             'packages': packages,
             'stats': stats
         }
+
+    def _compute_package_readiness(self, packages: List[Dict]) -> None:
+        """Compute migration readiness for each package in-place.
+
+        Standard packages: check Discover version currency + artifact readiness.
+        Custom packages: check artifact readiness + draft status.
+        """
+        if not packages:
+            return
+
+        # 1. Get per-package artifact readiness counts
+        #    Reuses the same draft + HC_ env-var logic as the deployment status query.
+        artifact_readiness_query = """
+        SELECT
+            PackageId,
+            SUM(CASE WHEN readiness = 'Green' THEN 1 ELSE 0 END) as green_count,
+            SUM(CASE WHEN readiness = 'Amber' THEN 1 ELSE 0 END) as amber_count,
+            SUM(CASE WHEN readiness = 'Red'   THEN 1 ELSE 0 END) as red_count,
+            COUNT(*) as total
+        FROM (
+            SELECT i.PackageId,
+                CASE
+                    WHEN evc.parentName IS NOT NULL THEN 'Red'
+                    WHEN i.Version = 'Active' THEN 'Amber'
+                    ELSE 'Green'
+                END as readiness
+            FROM iflow i
+            LEFT JOIN (
+                SELECT parentName FROM environment_variable_check
+                WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                GROUP BY parentName
+            ) evc ON i.Id = evc.parentName
+            WHERE i.tenant_id = ?
+
+            UNION ALL
+
+            SELECT sc.PackageId,
+                CASE
+                    WHEN evc.parentName IS NOT NULL THEN 'Red'
+                    WHEN sc.Version = 'Active' THEN 'Amber'
+                    ELSE 'Green'
+                END as readiness
+            FROM script_collection sc
+            LEFT JOIN (
+                SELECT parentName FROM environment_variable_check
+                WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                GROUP BY parentName
+            ) evc ON sc.Id = evc.parentName
+            WHERE sc.tenant_id = ?
+
+            UNION ALL
+
+            SELECT mm.PackageId,
+                CASE WHEN mm.Version = 'Active' THEN 'Amber' ELSE 'Green' END as readiness
+            FROM message_mapping mm WHERE mm.tenant_id = ?
+
+            UNION ALL
+
+            SELECT vm.PackageId,
+                CASE WHEN vm.Version = 'Active' THEN 'Amber' ELSE 'Green' END as readiness
+            FROM value_mapping vm WHERE vm.tenant_id = ?
+        )
+        GROUP BY PackageId
+        """
+        art_rows = self.execute_query(artifact_readiness_query, (
+            self.tenant_id, self.tenant_id,
+            self.tenant_id, self.tenant_id,
+            self.tenant_id,
+            self.tenant_id,
+        ))
+        art_by_pkg = {r['PackageId']: r for r in art_rows}
+
+        # 2. Get Discover version status for standard packages
+        discover_status = {}  # package_id -> 'Up-to-date' | 'Update available' | ...
+        try:
+            dv_rows = self.execute_query(
+                """SELECT PackageID,
+                          CurrentVersion,
+                          DiscoverVersion,
+                          CASE
+                              WHEN CurrentVersion = DiscoverVersion THEN 'Up-to-date'
+                              WHEN DiscoverVersion = 'Manual check needed' THEN 'Manual check needed'
+                              ELSE 'Update available'
+                          END as status
+                   FROM package_discover_version WHERE tenant_id = ?""",
+                (self.tenant_id,),
+            )
+            for row in dv_rows:
+                discover_status[row['PackageID']] = row
+        except Exception:
+            logger.debug("  package_discover_version table not available — skipping discover check")
+
+        # 3. Get artifact-level details for popover: HC_ var artifacts and draft artifacts per package
+        hc_artifacts_by_pkg = {}  # package_id -> [{'name': ..., 'type': ...}, ...]
+        try:
+            hc_art_rows = self.execute_query("""
+                SELECT i.PackageId, i.Name as artifact_name, 'Integration Flow' as artifact_type
+                FROM iflow i
+                INNER JOIN (
+                    SELECT DISTINCT parentName FROM environment_variable_check
+                    WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                ) evc ON i.Id = evc.parentName
+                WHERE i.tenant_id = ?
+                UNION ALL
+                SELECT sc.PackageId, sc.Name, 'Script Collection'
+                FROM script_collection sc
+                INNER JOIN (
+                    SELECT DISTINCT parentName FROM environment_variable_check
+                    WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                ) evc ON sc.Id = evc.parentName
+                WHERE sc.tenant_id = ?
+            """, (self.tenant_id, self.tenant_id, self.tenant_id, self.tenant_id))
+            for row in hc_art_rows:
+                hc_artifacts_by_pkg.setdefault(row['PackageId'], []).append(row)
+        except Exception:
+            pass
+
+        draft_artifacts_by_pkg = {}  # package_id -> [{'name': ..., 'type': ...}, ...]
+        try:
+            draft_rows = self.execute_query("""
+                SELECT PackageId, Name as artifact_name, 'Integration Flow' as artifact_type
+                FROM iflow WHERE tenant_id = ? AND Version = 'Active'
+                UNION ALL
+                SELECT PackageId, Name, 'Script Collection'
+                FROM script_collection WHERE tenant_id = ? AND Version = 'Active'
+                UNION ALL
+                SELECT PackageId, Name, 'Message Mapping'
+                FROM message_mapping WHERE tenant_id = ? AND Version = 'Active'
+                UNION ALL
+                SELECT PackageId, Name, 'Value Mapping'
+                FROM value_mapping WHERE tenant_id = ? AND Version = 'Active'
+            """, (self.tenant_id, self.tenant_id, self.tenant_id, self.tenant_id))
+            for row in draft_rows:
+                draft_artifacts_by_pkg.setdefault(row['PackageId'], []).append(row)
+        except Exception:
+            pass
+
+        # 4. Assign readiness to each package
+        for pkg in packages:
+            pid = pkg['package_id']
+            ptype = pkg.get('package_type', 'Custom')
+            art = art_by_pkg.get(pid, {'green_count': 0, 'amber_count': 0, 'red_count': 0, 'total': 0})
+            green = int(art.get('green_count', 0) or 0)
+            amber = int(art.get('amber_count', 0) or 0)
+            red = int(art.get('red_count', 0) or 0)
+            total = int(art.get('total', 0) or 0)
+            checks = []
+            hc_arts = hc_artifacts_by_pkg.get(pid, [])
+            draft_arts = draft_artifacts_by_pkg.get(pid, [])
+
+            if ptype in ('Standard (Editable)', 'Standard (Configure-Only)'):
+                dv = discover_status.get(pid)
+                version_ok = dv is not None and dv.get('status') == 'Up-to-date'
+                version_unknown = dv is None or dv.get('status') == 'Manual check needed'
+                all_green = (total == 0 or (amber == 0 and red == 0))
+
+                # Version check
+                if version_ok:
+                    checks.append({'check': 'Discover Version', 'status': 'Green',
+                                   'detail': 'Up-to-date with Discover'})
+                elif version_unknown:
+                    checks.append({'check': 'Discover Version', 'status': 'Amber',
+                                   'detail': 'Discover data unavailable — manual check needed'})
+                else:
+                    checks.append({'check': 'Discover Version', 'status': 'Red',
+                                   'detail': f'Outdated (design: {dv["CurrentVersion"]}, discover: {dv["DiscoverVersion"]})'})
+
+                # Artifact readiness check
+                if all_green:
+                    checks.append({'check': 'Artifact Readiness', 'status': 'Green',
+                                   'detail': f'All {total} artifacts ready' if total else 'No artifacts'})
+                else:
+                    non_green = amber + red
+                    c = {'check': 'Artifact Readiness', 'status': 'Red' if red > 0 else 'Amber',
+                         'detail': f'{non_green} of {total} artifacts need attention ({amber} amber, {red} red)'}
+                    art_names = []
+                    for a in hc_arts:
+                        art_names.append(f"{a['artifact_name']} ({a['artifact_type']}) — System (HC_) Variable")
+                    for a in draft_arts:
+                        if not any(a['artifact_name'] == h['artifact_name'] for h in hc_arts):
+                            art_names.append(f"{a['artifact_name']} ({a['artifact_type']}) — Draft")
+                    if art_names:
+                        c['files'] = art_names
+                    checks.append(c)
+
+                if version_ok and all_green:
+                    pkg['migration_readiness'] = 'Green'
+                elif (not version_ok and not version_unknown) and (red > 0 or amber > 0):
+                    pkg['migration_readiness'] = 'Red'
+                else:
+                    pkg['migration_readiness'] = 'Amber'
+            else:
+                # Custom package
+                # System (HC_) Variable check
+                if red > 0:
+                    c = {'check': 'System (HC_) Variables', 'status': 'Red',
+                         'detail': f'{red} artifact(s) use System (HC_) variables'}
+                    c['files'] = [f"{a['artifact_name']} ({a['artifact_type']})" for a in hc_arts]
+                    checks.append(c)
+                else:
+                    checks.append({'check': 'System (HC_) Variables', 'status': 'Green',
+                                   'detail': 'No System (HC_) variable issues'})
+
+                # Draft artifacts check
+                if amber > 0:
+                    c = {'check': 'Draft Artifacts', 'status': 'Amber',
+                         'detail': f'{amber} draft artifact(s) — save versioned copies'}
+                    c['files'] = [f"{a['artifact_name']} ({a['artifact_type']})" for a in draft_arts]
+                    checks.append(c)
+                else:
+                    checks.append({'check': 'Draft Artifacts', 'status': 'Green',
+                                   'detail': 'No draft artifacts'})
+
+                if red > 0:
+                    pkg['migration_readiness'] = 'Red'
+                elif amber > 0:
+                    pkg['migration_readiness'] = 'Amber'
+                else:
+                    pkg['migration_readiness'] = 'Green'
+
+            pkg['readiness_checks'] = checks
     
     def _generate_version_deployment(self) -> Dict[str, Any]:
         """Generate version comparison and deployment status"""
@@ -381,106 +570,198 @@ class NeoToCFMigrationReport(BaseReport):
         package_versions = self.execute_query(package_versions_query, (self.tenant_id,))
         
         # All artifacts deployment status (IFlows, Script Collections, Message Mappings, Value Mappings)
+        # Includes migration_readiness (Green/Amber/Red).
+        # HC_ env var check via environment_variable_check table (IFlows & Script Collections only).
         all_artifacts_query = """
-        SELECT 
+        SELECT
             i.Id as artifact_id,
             i.Name as artifact_name,
             'Integration Flow' as artifact_type,
             p.Name as package_name,
-            CASE 
+            CASE
                 WHEN i.Version = 'Active' THEN 'Draft'
                 ELSE i.Version
             END as design_version,
             r.Version as runtime_version,
-            CASE 
+            CASE
                 WHEN r.Id IS NULL THEN 'Not Deployed'
                 WHEN i.Version = r.Version THEN 'In Sync'
                 ELSE 'Out of Sync'
             END as deployment_status,
-            i.ModifiedAt as last_modified
+            i.ModifiedAt as last_modified,
+            CASE
+                WHEN evc.parentName IS NOT NULL THEN 'Red'
+                WHEN i.Version = 'Active' THEN 'Amber'
+                ELSE 'Green'
+            END as migration_readiness
         FROM iflow i
         INNER JOIN package p ON i.PackageId = p.Id AND i.tenant_id = p.tenant_id
         LEFT JOIN runtime r ON i.Id = r.Id AND i.tenant_id = r.tenant_id
+        LEFT JOIN (
+            SELECT parentName, SUM(CAST(envVariableCount AS INTEGER)) as hc_file_count
+            FROM environment_variable_check
+            WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+            GROUP BY parentName
+        ) evc ON i.Id = evc.parentName
         WHERE i.tenant_id = ?
-        
+
         UNION ALL
-        
-        SELECT 
+
+        SELECT
             sc.Id as artifact_id,
             sc.Name as artifact_name,
             'Script Collection' as artifact_type,
             p.Name as package_name,
-            CASE 
+            CASE
                 WHEN sc.Version = 'Active' THEN 'Draft'
                 ELSE sc.Version
             END as design_version,
             r.Version as runtime_version,
-            CASE 
+            CASE
                 WHEN r.Id IS NULL THEN 'Not Deployed'
                 WHEN sc.Version = r.Version THEN 'In Sync'
                 ELSE 'Out of Sync'
             END as deployment_status,
-            NULL as last_modified
+            NULL as last_modified,
+            CASE
+                WHEN evc.parentName IS NOT NULL THEN 'Red'
+                WHEN sc.Version = 'Active' THEN 'Amber'
+                ELSE 'Green'
+            END as migration_readiness
         FROM script_collection sc
         INNER JOIN package p ON sc.PackageId = p.Id AND sc.tenant_id = p.tenant_id
         LEFT JOIN runtime r ON sc.Id = r.Id AND r.Type = 'SCRIPT_COLLECTION' AND sc.tenant_id = r.tenant_id
+        LEFT JOIN (
+            SELECT parentName, SUM(CAST(envVariableCount AS INTEGER)) as hc_file_count
+            FROM environment_variable_check
+            WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+            GROUP BY parentName
+        ) evc ON sc.Id = evc.parentName
         WHERE sc.tenant_id = ?
-        
+
         UNION ALL
-        
-        SELECT 
+
+        SELECT
             mm.Id as artifact_id,
             mm.Name as artifact_name,
             'Message Mapping' as artifact_type,
             p.Name as package_name,
-            CASE 
+            CASE
                 WHEN mm.Version = 'Active' THEN 'Draft'
                 ELSE mm.Version
             END as design_version,
             r.Version as runtime_version,
-            CASE 
+            CASE
                 WHEN r.Id IS NULL THEN 'Not Deployed'
                 WHEN mm.Version = r.Version THEN 'In Sync'
                 ELSE 'Out of Sync'
             END as deployment_status,
-            NULL as last_modified
+            NULL as last_modified,
+            CASE
+                WHEN mm.Version = 'Active' THEN 'Amber'
+                ELSE 'Green'
+            END as migration_readiness
         FROM message_mapping mm
         INNER JOIN package p ON mm.PackageId = p.Id AND mm.tenant_id = p.tenant_id
         LEFT JOIN runtime r ON mm.Id = r.Id AND r.Type = 'MESSAGE_MAPPING' AND mm.tenant_id = r.tenant_id
         WHERE mm.tenant_id = ?
-        
+
         UNION ALL
-        
-        SELECT 
+
+        SELECT
             vm.Id as artifact_id,
             vm.Name as artifact_name,
             'Value Mapping' as artifact_type,
             p.Name as package_name,
-            CASE 
+            CASE
                 WHEN vm.Version = 'Active' THEN 'Draft'
                 ELSE vm.Version
             END as design_version,
             r.Version as runtime_version,
-            CASE 
+            CASE
                 WHEN r.Id IS NULL THEN 'Not Deployed'
                 WHEN vm.Version = r.Version THEN 'In Sync'
                 ELSE 'Out of Sync'
             END as deployment_status,
-            NULL as last_modified
+            NULL as last_modified,
+            CASE
+                WHEN vm.Version = 'Active' THEN 'Amber'
+                ELSE 'Green'
+            END as migration_readiness
         FROM value_mapping vm
         INNER JOIN package p ON vm.PackageId = p.Id AND vm.tenant_id = p.tenant_id
         LEFT JOIN runtime r ON vm.Id = r.Id AND r.Type = 'VALUE_MAPPING' AND vm.tenant_id = r.tenant_id
         WHERE vm.tenant_id = ?
-        
+
         ORDER BY deployment_status DESC, package_name, artifact_name
         """
-        iflow_deployments = self.execute_query(all_artifacts_query, (self.tenant_id, self.tenant_id, self.tenant_id, self.tenant_id))
-        
+        # 8 params: evc tenant + iflow tenant, evc tenant + sc tenant, mm tenant, vm tenant
+        iflow_deployments = self.execute_query(all_artifacts_query, (
+            self.tenant_id, self.tenant_id,
+            self.tenant_id, self.tenant_id,
+            self.tenant_id,
+            self.tenant_id
+        ))
+
+        # Enrich with structured readiness_checks for popover display.
+        # Load HC_ env variable file details for Red artifacts.
+        hc_files_by_parent = {}
+        try:
+            hc_rows = self.execute_query(
+                """SELECT parentName, fileName, fileType,
+                          CAST(envVariableCount AS INTEGER) as var_count,
+                          envVariableList as variables
+                   FROM environment_variable_check
+                   WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                   ORDER BY parentName, fileName""",
+                (self.tenant_id,),
+            )
+            for row in hc_rows:
+                hc_files_by_parent.setdefault(row['parentName'], []).append(row)
+        except Exception:
+            logger.debug("  environment_variable_check table not available — skipping HC_ file details")
+
+        for dep in iflow_deployments:
+            checks = []
+            readiness = dep.get('migration_readiness', 'Green')
+            art_type = dep.get('artifact_type', '')
+            is_draft = dep.get('design_version') == 'Draft'
+            version_display = dep.get('design_version', 'N/A')
+
+            # Version check (applies to all artifact types)
+            if is_draft:
+                checks.append({'check': 'Version Status', 'status': 'Amber',
+                               'detail': f'Draft — save a versioned copy before migration'})
+            else:
+                checks.append({'check': 'Version Status', 'status': 'Green',
+                               'detail': f'Version {version_display} (not draft)'})
+
+            # System (HC_) Variable check (only for IFlows and Script Collections)
+            if art_type in ('Integration Flow', 'Script Collection'):
+                hc_files = hc_files_by_parent.get(dep.get('artifact_id'), [])
+                if hc_files:
+                    _ft_label = {'groovyScript': 'Groovy Script', 'javascript': 'JavaScript', 'xslt': 'XSLT'}
+                    file_details = [
+                        f"{f['fileName']} ({_ft_label.get(f['fileType'], f['fileType'])}, {f['var_count']} vars)"
+                        for f in hc_files
+                    ]
+                    checks.append({'check': 'System (HC_) Variables', 'status': 'Red',
+                                   'detail': f'{len(hc_files)} file(s) use System (HC_) variables',
+                                   'files': file_details})
+                else:
+                    checks.append({'check': 'System (HC_) Variables', 'status': 'Green',
+                                   'detail': 'No System (HC_) variables found'})
+
+            dep['readiness_checks'] = checks
+
         # Calculate deployment statistics
         deployment_stats = {
             'synced': len([d for d in iflow_deployments if d['deployment_status'] == 'In Sync']),
             'out_of_sync': len([d for d in iflow_deployments if d['deployment_status'] == 'Out of Sync']),
-            'not_deployed': len([d for d in iflow_deployments if d['deployment_status'] == 'Not Deployed'])
+            'not_deployed': len([d for d in iflow_deployments if d['deployment_status'] == 'Not Deployed']),
+            'readiness_green': len([d for d in iflow_deployments if d.get('migration_readiness') == 'Green']),
+            'readiness_amber': len([d for d in iflow_deployments if d.get('migration_readiness') == 'Amber']),
+            'readiness_red': len([d for d in iflow_deployments if d.get('migration_readiness') == 'Red']),
         }
         
         return {
@@ -528,7 +809,7 @@ class NeoToCFMigrationReport(BaseReport):
         
         # Adapter type distribution using correct column names
         adapter_query = """
-        SELECT 
+        SELECT
             componentType as adapter_type,
             SUM(CASE WHEN type LIKE '%Sender%' THEN 1 ELSE 0 END) as sender_count,
             SUM(CASE WHEN type LIKE '%Receiver%' THEN 1 ELSE 0 END) as receiver_count,
@@ -540,6 +821,43 @@ class NeoToCFMigrationReport(BaseReport):
         ORDER BY total_count DESC
         """
         adapters = self.execute_query(adapter_query, (self.tenant_id,))
+
+        # Enrich adapters with IFlow names per direction for drill-down
+        adapter_iflow_query = """
+        SELECT
+            bc.componentType as adapter_type,
+            bc.type as channel_type,
+            COALESCE(i.Name, bc.iflowId) as iflow_name,
+            COALESCE(p.Name, bc.packageId) as package_name
+        FROM bpmn_channel bc
+        LEFT JOIN iflow i ON bc.iflowId = i.Id AND bc.tenant_id = i.tenant_id
+        LEFT JOIN package p ON bc.packageId = p.Id AND bc.tenant_id = p.tenant_id
+        WHERE bc.tenant_id = ?
+        AND bc.componentType IS NOT NULL
+        ORDER BY bc.componentType, bc.type, iflow_name
+        """
+        try:
+            iflow_rows = self.execute_query(adapter_iflow_query, (self.tenant_id,))
+            # Build lookup: adapter_type -> { 'sender': [...], 'receiver': [...] }
+            adapter_iflows = {}
+            for row in iflow_rows:
+                at = row['adapter_type']
+                if at not in adapter_iflows:
+                    adapter_iflows[at] = {'sender': [], 'receiver': []}
+                entry = f"{row['iflow_name']}|||{row['package_name']}"
+                if 'Sender' in (row.get('channel_type') or ''):
+                    adapter_iflows[at]['sender'].append(entry)
+                else:
+                    adapter_iflows[at]['receiver'].append(entry)
+            for adapter in adapters:
+                at = adapter['adapter_type']
+                info = adapter_iflows.get(at, {'sender': [], 'receiver': []})
+                adapter['sender_iflows'] = ','.join(info['sender'])
+                adapter['receiver_iflows'] = ','.join(info['receiver'])
+        except Exception:
+            for adapter in adapters:
+                adapter['sender_iflows'] = ''
+                adapter['receiver_iflows'] = ''
         
         # Unique systems = distinct (system_name, address_url) pairs
         # (len(systems) would over-count because it groups by adapter type + direction too)
@@ -870,185 +1188,6 @@ class NeoToCFMigrationReport(BaseReport):
         
         return dn  # Return full DN if CN not found
     
-    def _generate_migration_scores(self) -> Dict[str, Any]:
-        """Read pre-computed MCI scores from package_migration_score table"""
-        try:
-            self.execute_scalar(
-                "SELECT COUNT(*) FROM package_migration_score WHERE tenant_id = ?",
-                (self.tenant_id,)
-            )
-        except Exception:
-            logger.info("  package_migration_score table not available — MCI scores not pre-computed yet")
-            return {'packages': [], 'summary': {}, 'available': False}
-        
-        scores_query = """
-        SELECT 
-            package_id, package_name, package_type,
-            rule1a_score as rule1a, rule1b_score as rule1b,
-            rule2_score as rule2, rule3_score as rule3,
-            rule4_score as rule4, rule5_score as rule5,
-            rule6_score as rule6,
-            total_score, readiness_score, readiness_tag, computed_at
-        FROM package_migration_score
-        WHERE tenant_id = ?
-        ORDER BY readiness_score DESC, package_name
-        """
-        packages = self.execute_query(scores_query, (self.tenant_id,))
-        
-        if not packages:
-            return {'packages': [], 'summary': {}, 'available': True}
-        
-        custom_pkgs = [p for p in packages if p.get('package_type') == 'Custom']
-        standard_pkgs = [p for p in packages if p.get('package_type') != 'Custom']
-        
-        overall_mrs = round(sum(p['readiness_score'] for p in packages) / len(packages))
-        custom_mrs = round(sum(p['readiness_score'] for p in custom_pkgs) / len(custom_pkgs)) if custom_pkgs else 0
-        standard_mrs = round(sum(p['readiness_score'] for p in standard_pkgs) / len(standard_pkgs)) if standard_pkgs else 0
-        
-        tag_counts = {'Ready': 0, 'Mostly Ready': 0, 'Needs Work': 0, 'Not Ready': 0}
-        for p in packages:
-            tag = p.get('readiness_tag', 'Not Ready')
-            if tag in tag_counts:
-                tag_counts[tag] += 1
-        
-        summary = {
-            'overall_mrs': overall_mrs,
-            'custom_mrs': custom_mrs,
-            'standard_mrs': standard_mrs,
-            'tag_counts': tag_counts,
-            'total_packages_scored': len(packages),
-        }
-        
-        logger.info(f"  Loaded MRS scores for {len(packages)} packages — Overall MRS: {overall_mrs}")
-        return {'packages': packages, 'summary': summary, 'available': True}
-    
-    def _calculate_readiness_score(self, pkg_data: Dict, iflow_count: int, 
-                                   total_artifacts: int, systems_count: int) -> int:
-        """
-        Calculate migration readiness score (0-100) based on multiple factors
-        
-        Scoring Methodology:
-        1. Package Composition (30 points):
-           - Standard Read-Only packages are easiest to migrate (30 points)
-           - Standard Editable packages need configuration review (20 points)
-           - Custom packages require thorough analysis (10 points)
-        
-        2. Deployment Status (25 points):
-           - High deployment sync rate indicates stability
-           - Measures design vs runtime alignment
-        
-        3. Version Currency (20 points):
-           - Recent modifications suggest active maintenance
-           - Packages not modified in 6+ months may need review
-        
-        4. Complexity (15 points):
-           - Fewer artifacts per package = simpler migration
-           - Complexity penalty for high artifact counts
-        
-        5. Integration Density (10 points):
-           - Fewer unique systems = simpler connectivity migration
-           - System count vs artifact ratio
-        
-        Returns:
-            int: Readiness score between 0-100
-        """
-        score = 0.0
-        
-        # 1. Package Composition Score (30 points max)
-        total_packages = pkg_data.get('total_packages', 0)
-        if total_packages > 0:
-            standard_readonly = pkg_data.get('standard_readonly', 0)
-            standard_editable = pkg_data.get('standard_editable', 0)
-            custom_packages = pkg_data.get('custom_packages', 0)
-            
-            # Weighted scoring: Read-Only=1.0, Editable=0.67, Custom=0.33
-            composition_score = (
-                (standard_readonly * 1.0) +
-                (standard_editable * 0.67) +
-                (custom_packages * 0.33)
-            ) / total_packages
-            score += composition_score * 30
-            
-            logger.debug(f"  Package Composition: {composition_score * 30:.1f}/30 points")
-        
-        # 2. Deployment Status Score (25 points max)
-        if iflow_count > 0:
-            # Get deployment sync data
-            deploy_query = """
-            SELECT 
-                SUM(CASE WHEN r.Id IS NOT NULL AND i.Version = r.Version THEN 1 ELSE 0 END) as synced,
-                COUNT(*) as total
-            FROM iflow i
-            LEFT JOIN runtime r ON i.Id = r.Id AND i.tenant_id = r.tenant_id
-            WHERE i.tenant_id = ?
-            """
-            deploy_stats = self.execute_query(deploy_query, (self.tenant_id,))
-            if deploy_stats:
-                synced = deploy_stats[0].get('synced', 0)
-                total = deploy_stats[0].get('total', 1)
-                sync_ratio = synced / total if total > 0 else 0
-                deployment_score = sync_ratio * 25
-                score += deployment_score
-                logger.debug(f"  Deployment Sync: {deployment_score:.1f}/25 points ({synced}/{total} synced)")
-        
-        # 3. Version Currency Score (20 points max)
-        if total_packages > 0:
-            # Check how many packages are recently modified (within 180 days)
-            recent_query = """
-            SELECT COUNT(*) 
-            FROM package 
-            WHERE tenant_id = ? 
-            AND ModifiedDate >= date('now', '-180 days')
-            """
-            recent_count = self.execute_scalar(recent_query, (self.tenant_id,)) or 0
-            currency_ratio = recent_count / total_packages
-            currency_score = currency_ratio * 20
-            score += currency_score
-            logger.debug(f"  Version Currency: {currency_score:.1f}/20 points ({recent_count}/{total_packages} recently modified)")
-        
-        # 4. Complexity Score (15 points max)
-        if total_packages > 0 and total_artifacts > 0:
-            avg_artifacts = total_artifacts / total_packages
-            # Lower complexity is better: score inversely proportional to artifact count
-            # Assume baseline of 5 artifacts/package as "simple"
-            # 1-5 artifacts = full points, 6-10 = reduced, 11+ = further reduced
-            if avg_artifacts <= 5:
-                complexity_score = 15
-            elif avg_artifacts <= 10:
-                complexity_score = 15 * (1 - ((avg_artifacts - 5) / 10))
-            else:
-                complexity_score = 15 * (1 - ((avg_artifacts - 5) / 20))
-            
-            complexity_score = max(0, complexity_score)  # Ensure non-negative
-            score += complexity_score
-            logger.debug(f"  Complexity: {complexity_score:.1f}/15 points (avg {avg_artifacts:.1f} artifacts/package)")
-        
-        # 5. Integration Density Score (10 points max)
-        if total_artifacts > 0:
-            # Lower system-to-artifact ratio is better (more reuse)
-            if systems_count == 0:
-                integration_score = 10  # No external systems = simplest
-            else:
-                system_ratio = systems_count / total_artifacts
-                # Ideal ratio: < 0.5 systems per artifact
-                if system_ratio <= 0.5:
-                    integration_score = 10
-                elif system_ratio <= 1.0:
-                    integration_score = 10 * (1 - ((system_ratio - 0.5) / 0.5))
-                else:
-                    integration_score = 5 * (1 / system_ratio)
-                
-                integration_score = min(10, max(0, integration_score))
-            
-            score += integration_score
-            logger.debug(f"  Integration Density: {integration_score:.1f}/10 points ({systems_count} systems for {total_artifacts} artifacts)")
-        
-        # Round to nearest integer
-        final_score = round(score)
-        logger.info(f"  Migration Readiness Score: {final_score}/100")
-        
-        return final_score
-    
     def get_summary_metrics(self) -> Dict[str, Any]:
         """Get summary metrics for dashboard"""
         if not self.report_data:
@@ -1060,5 +1199,4 @@ class NeoToCFMigrationReport(BaseReport):
         return {
             'total_packages': kpis.get('total_packages', 0),
             'total_artifacts': kpis.get('total_artifacts', 0),
-            'readiness_score': kpis.get('readiness_score', 0)
         }
