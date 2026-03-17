@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 class ReadOnlyPackageExtractor:
     """Extracts artifacts from READ_ONLY package ZIP files"""
     
-    def __init__(self, download_dir: Path, timestamp: str = None):
+    def __init__(self, download_dir: Path, timestamp: str = None, error_collector=None):
         """
         Initialize READ_ONLY Package Extractor
         
@@ -27,12 +27,13 @@ class ReadOnlyPackageExtractor:
         """
         self.download_dir = Path(download_dir)
         self.timestamp = timestamp
-        
+        self.error_collector = error_collector
+
         # Define source and destination directories
         self.readonly_packages_dir = self.download_dir / "read-only-packages" / "zip-files"
         self.iflows_dir = self.download_dir / "iflows" / "zip-files"
         self.script_collections_dir = self.download_dir / "script-collections" / "zip-files"
-        self.message_mappings_dir = self.download_dir / "message-mappingdictas" / "zip-files"
+        self.message_mappings_dir = self.download_dir / "message-mappings" / "zip-files"
         self.value_mappings_dir = self.download_dir / "value-mappings" / "zip-files"
         
         # Track extraction errors
@@ -97,10 +98,6 @@ class ReadOnlyPackageExtractor:
                 stats["packages_failed"] += 1
                 logger.error(f"  Failed to process package {package_id}: {e}")
                 self._track_error(package_id, None, None, "PACKAGE_PROCESSING", str(e))
-        
-        # Save error log if there are any errors
-        if self.errors:
-            self._save_error_log()
         
         logger.info(f"Extraction completed. Processed {stats['packages_processed']}/{stats['packages_attempted']} packages")
         logger.info(f"  Extracted: {stats['iflows_extracted']} iflows, "
@@ -309,8 +306,20 @@ class ReadOnlyPackageExtractor:
             "ErrorMessage": error_message[:500],  # Limit message length
             "Timestamp": datetime.now().isoformat()
         }
-        
+
         self.errors.append(error_record)
+
+        # Forward to centralized error collector
+        if self.error_collector:
+            self.error_collector.add_error(
+                package_id=package_id,
+                artifact_type='READ_ONLY_PACKAGE',
+                error_code=0,
+                error_type=error_type,
+                error_message=error_message[:500],
+                iflow_id=artifact_id or '',
+                version=unique_id or ''
+            )
     
     def _save_error_log(self):
         """Save error log to JSON file"""

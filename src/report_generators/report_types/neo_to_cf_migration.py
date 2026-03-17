@@ -261,7 +261,7 @@ class NeoToCFMigrationReport(BaseReport):
                 raw = entry.get('ValidNotAfter', '')
                 match = re.search(r'/Date\((\d+)\)/', str(raw))
                 if match:
-                    ts = int(match.group(1)) / 1000
+                    ts = min(int(match.group(1)) / 1000, 32503680000)  # cap at year 3000 (Windows-safe)
                     valid_to = dt.fromtimestamp(ts)
                     if valid_to < now:
                         expired_cert_count += 1
@@ -1277,7 +1277,7 @@ class NeoToCFMigrationReport(BaseReport):
                 if valid_after_str and '/Date(' in valid_after_str:
                     # Extract timestamp from /Date(timestamp)/
                     timestamp_ms = int(valid_after_str.split('(')[1].split(')')[0])
-                    valid_after = datetime.fromtimestamp(timestamp_ms / 1000)
+                    valid_after = datetime.fromtimestamp(min(timestamp_ms / 1000, 32503680000))
                     
                     if valid_after < now:
                         entry['status'] = 'Expired'
@@ -1331,7 +1331,7 @@ class NeoToCFMigrationReport(BaseReport):
         try:
             from datetime import datetime
             timestamp_ms = int(date_str.split('(')[1].split(')')[0])
-            dt = datetime.fromtimestamp(timestamp_ms / 1000)
+            dt = datetime.fromtimestamp(min(timestamp_ms / 1000, 32503680000))
             return dt.strftime('%Y-%m-%d')
         except:
             return 'N/A'
@@ -1352,13 +1352,13 @@ class NeoToCFMigrationReport(BaseReport):
 
     def _generate_download_errors(self) -> Dict[str, Any]:
         """Generate download errors summary from download_error table"""
+        # Check table AND column exist without triggering base class ERROR logging
         try:
-            self.execute_scalar(
-                "SELECT COUNT(*) FROM download_error WHERE tenant_id = ?",
-                (self.tenant_id,)
-            )
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT PackageID FROM download_error WHERE tenant_id = ? LIMIT 1", (self.tenant_id,))
         except Exception:
-            logger.info("  download_error table not available — no error data to display")
+            logger.info("  download_error table not available or empty — no error data to display")
             return {'errors': [], 'stats': {}, 'available': False}
 
         errors_query = """

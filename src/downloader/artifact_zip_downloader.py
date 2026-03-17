@@ -19,9 +19,10 @@ logger = get_logger(__name__)
 class ArtifactZipDownloader:
     """Downloads artifact ZIP files for packages and iflows"""
     
-    def __init__(self, auth_client: Union[OAuthClient, BasicAuthClient], api_base_url: str, 
-                 download_dir: Path, timeout: int = 30, 
-                 parallel_downloads: int = 5, timestamp: str = None):
+    def __init__(self, auth_client: Union[OAuthClient, BasicAuthClient], api_base_url: str,
+                 download_dir: Path, timeout: int = 30,
+                 parallel_downloads: int = 5, timestamp: str = None,
+                 error_collector=None):
         """
         Initialize Artifact ZIP Downloader
         
@@ -39,7 +40,8 @@ class ArtifactZipDownloader:
         self.timeout = timeout
         self.parallel_downloads = parallel_downloads
         self.timestamp = timestamp
-        
+        self.error_collector = error_collector
+
         # Track download errors
         self.errors = []
         
@@ -104,10 +106,6 @@ class ArtifactZipDownloader:
         stats["value_mappings_attempted"] = edit_allowed_stats["value_mappings_attempted"]
         stats["value_mappings_downloaded"] = edit_allowed_stats["value_mappings_downloaded"]
         stats["value_mappings_failed"] = edit_allowed_stats["value_mappings_failed"]
-        
-        # Save error log if there are any errors
-        if self.errors:
-            self._save_error_log()
         
         logger.info(f"Artifact ZIP downloads completed. Success: {stats['read_only_packages_downloaded']} packages, {stats['iflows_downloaded']} iflows, {stats['script_collections_downloaded']} script collections, {stats['message_mappings_downloaded']} message mappings, {stats['value_mappings_downloaded']} value mappings")
         
@@ -841,12 +839,25 @@ class ArtifactZipDownloader:
             "Timestamp": datetime.now().isoformat(),
             "DownloadAttempted": str(attempted_path.relative_to(self.download_dir.parent))
         }
-        
+
         if iflow_id:
             error_record["IflowID"] = iflow_id
             error_record["Version"] = version
-        
+
         self.errors.append(error_record)
+
+        # Forward to centralized error collector
+        if self.error_collector:
+            self.error_collector.add_error(
+                package_id=package_id,
+                artifact_type=artifact_type,
+                error_code=error_code or 0,
+                error_type=error_type,
+                error_message=error_message[:500],
+                download_path=str(attempted_path.relative_to(self.download_dir.parent)),
+                iflow_id=iflow_id or '',
+                version=version or ''
+            )
     
     def _save_error_log(self):
         """Save error log to JSON file (in json-files/ so it gets imported to DB)"""

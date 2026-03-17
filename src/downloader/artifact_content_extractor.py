@@ -9,14 +9,15 @@ from pathlib import Path
 from zipfile import ZipFile, BadZipFile
 from datetime import datetime
 from utils.logger import get_logger
+from utils.filename_sanitizer import sanitize_chars, sanitize_source_name
 
 logger = get_logger(__name__)
 
 
 class ScriptCollectionExtractor:
     """Extracts script files from Script Collection ZIP archives"""
-    
-    def __init__(self, download_dir: Path, timestamp: str = None):
+
+    def __init__(self, download_dir: Path, timestamp: str = None, error_collector=None):
         """
         Initialize Script Collection Extractor
         
@@ -26,7 +27,8 @@ class ScriptCollectionExtractor:
         """
         self.download_dir = Path(download_dir)
         self.timestamp = timestamp
-        
+        self.error_collector = error_collector
+
         # Source directory
         self.zip_dir = self.download_dir / "script-collections" / "zip-files"
         
@@ -110,10 +112,6 @@ class ScriptCollectionExtractor:
                 logger.error(f"  Failed to process {zip_path.name}: {e}")
                 self._track_error(zip_path.name, "EXTRACTION_ERROR", str(e))
         
-        # Save error log if there are errors
-        if self.errors:
-            self._save_error_log()
-        
         logger.info(f"Script Collection extraction completed. Processed {stats['script_collections_processed']}/{stats['script_collections_attempted']}")
         logger.info(f"  Groovy scripts: {stats['groovy_scripts_extracted']}, JavaScript: {stats['java_scripts_extracted']}, Libraries: {stats['libraries_extracted']}")
         
@@ -157,7 +155,7 @@ class ScriptCollectionExtractor:
                         # Check if it's a Groovy script (.groovy or .gsh)
                         if file_path.startswith(script_prefix) and (source_name.endswith('.groovy') or source_name.endswith('.gsh')):
                             content = zip_file.read(file_info.filename)
-                            output_filename = f"{artifact_id}---{source_name}"
+                            output_filename = f"{artifact_id}---{sanitize_chars(source_name)}"
                             output_path = self.groovy_dir / output_filename
                             
                             with open(output_path, 'wb') as f:
@@ -169,7 +167,7 @@ class ScriptCollectionExtractor:
                         # Check if it's a JavaScript file (.js)
                         elif file_path.startswith(script_prefix) and source_name.endswith('.js'):
                             content = zip_file.read(file_info.filename)
-                            output_filename = f"{artifact_id}---{source_name}"
+                            output_filename = f"{artifact_id}---{sanitize_chars(source_name)}"
                             output_path = self.js_dir / output_filename
                             
                             with open(output_path, 'wb') as f:
@@ -181,7 +179,7 @@ class ScriptCollectionExtractor:
                         # Check if it's a library file (any extension in lib directory)
                         elif file_path.startswith(lib_prefix):
                             content = zip_file.read(file_info.filename)
-                            output_filename = f"{artifact_id}---{source_name}"
+                            output_filename = f"{artifact_id}---{sanitize_source_name(source_name)}"
                             output_path = self.lib_dir / output_filename
                             
                             with open(output_path, 'wb') as f:
@@ -208,7 +206,19 @@ class ScriptCollectionExtractor:
             "ErrorMessage": error_message[:500],
             "Timestamp": datetime.now().isoformat()
         })
-    
+
+        # Forward to centralized error collector
+        if self.error_collector:
+            stem = zip_name.rsplit('.', 1)[0] if '.' in zip_name else zip_name
+            package_id = stem.split('---', 1)[0] if '---' in stem else stem
+            self.error_collector.add_error(
+                package_id=package_id,
+                artifact_type='SCRIPT_COLLECTION_EXTRACTION',
+                error_code=0,
+                error_type=error_type,
+                error_message=error_message[:500]
+            )
+
     def _save_error_log(self):
         """Save error log to JSON file"""
         output_file = self.download_dir / "script-collection-extraction-errors.json"
@@ -226,8 +236,8 @@ class ScriptCollectionExtractor:
 
 class MessageMappingExtractor:
     """Extracts mapping files from Message Mapping ZIP archives"""
-    
-    def __init__(self, download_dir: Path, timestamp: str = None):
+
+    def __init__(self, download_dir: Path, timestamp: str = None, error_collector=None):
         """
         Initialize Message Mapping Extractor
         
@@ -237,7 +247,8 @@ class MessageMappingExtractor:
         """
         self.download_dir = Path(download_dir)
         self.timestamp = timestamp
-        
+        self.error_collector = error_collector
+
         # Source and target directories
         self.zip_dir = self.download_dir / "message-mappings" / "zip-files"
         self.target_dir = self.download_dir / "message-mappings" / "extracted-files"
@@ -304,21 +315,17 @@ class MessageMappingExtractor:
                 logger.error(f"  Failed to process {zip_path.name}: {e}")
                 self._track_error(zip_path.name, "EXTRACTION_ERROR", str(e))
         
-        # Save error log if there are errors
-        if self.errors:
-            self._save_error_log()
-        
         logger.info(f"Message Mapping extraction completed. Processed {stats['message_mappings_processed']}/{stats['message_mappings_attempted']}")
-        
+
         return stats
-    
+
     def _parse_artifact_id(self, zip_path: Path) -> str:
         """Extract artifact ID from filename"""
         filename = zip_path.stem
         if '---' in filename:
             return filename.split('---', 1)[1]
         return filename
-    
+
     def _extract_mappings(self, zip_path: Path, artifact_id: str) -> int:
         """Extract mapping files from ZIP"""
         count = 0
@@ -334,7 +341,7 @@ class MessageMappingExtractor:
                             content = zip_file.read(file_info.filename)
                             
                             # Create output filename: MessageMappingID---FileName.ext
-                            output_filename = f"{artifact_id}---{source_name}"
+                            output_filename = f"{artifact_id}---{sanitize_source_name(source_name)}"
                             output_path = self.target_dir / output_filename
                             
                             with open(output_path, 'wb') as f:
@@ -361,7 +368,19 @@ class MessageMappingExtractor:
             "ErrorMessage": error_message[:500],
             "Timestamp": datetime.now().isoformat()
         })
-    
+
+        # Forward to centralized error collector
+        if self.error_collector:
+            stem = zip_name.rsplit('.', 1)[0] if '.' in zip_name else zip_name
+            package_id = stem.split('---', 1)[0] if '---' in stem else stem
+            self.error_collector.add_error(
+                package_id=package_id,
+                artifact_type='MESSAGE_MAPPING_EXTRACTION',
+                error_code=0,
+                error_type=error_type,
+                error_message=error_message[:500]
+            )
+
     def _save_error_log(self):
         """Save error log to JSON file"""
         output_file = self.download_dir / "message-mapping-extraction-errors.json"
@@ -379,8 +398,8 @@ class MessageMappingExtractor:
 
 class ValueMappingExtractor:
     """Extracts XML files from Value Mapping ZIP archives"""
-    
-    def __init__(self, download_dir: Path, timestamp: str = None):
+
+    def __init__(self, download_dir: Path, timestamp: str = None, error_collector=None):
         """
         Initialize Value Mapping Extractor
         
@@ -390,7 +409,8 @@ class ValueMappingExtractor:
         """
         self.download_dir = Path(download_dir)
         self.timestamp = timestamp
-        
+        self.error_collector = error_collector
+
         # Source and target directories
         self.zip_dir = self.download_dir / "value-mappings" / "zip-files"
         self.target_dir = self.download_dir / "value-mappings" / "extracted-files"
@@ -457,21 +477,17 @@ class ValueMappingExtractor:
                 logger.error(f"  Failed to process {zip_path.name}: {e}")
                 self._track_error(zip_path.name, "EXTRACTION_ERROR", str(e))
         
-        # Save error log if there are errors
-        if self.errors:
-            self._save_error_log()
-        
         logger.info(f"Value Mapping extraction completed. Processed {stats['value_mappings_processed']}/{stats['value_mappings_attempted']}")
-        
+
         return stats
-    
+
     def _parse_artifact_id(self, zip_path: Path) -> str:
         """Extract artifact ID from filename"""
         filename = zip_path.stem
         if '---' in filename:
             return filename.split('---', 1)[1]
         return filename
-    
+
     def _extract_xml_files(self, zip_path: Path, artifact_id: str) -> int:
         """Extract XML files from ZIP root"""
         count = 0
@@ -487,7 +503,7 @@ class ValueMappingExtractor:
                             content = zip_file.read(file_info.filename)
                             
                             # Create output filename: ValueMappingID---FileName.xml
-                            output_filename = f"{artifact_id}---{source_name}"
+                            output_filename = f"{artifact_id}---{sanitize_source_name(source_name)}"
                             output_path = self.target_dir / output_filename
                             
                             with open(output_path, 'wb') as f:
@@ -514,7 +530,19 @@ class ValueMappingExtractor:
             "ErrorMessage": error_message[:500],
             "Timestamp": datetime.now().isoformat()
         })
-    
+
+        # Forward to centralized error collector
+        if self.error_collector:
+            stem = zip_name.rsplit('.', 1)[0] if '.' in zip_name else zip_name
+            package_id = stem.split('---', 1)[0] if '---' in stem else stem
+            self.error_collector.add_error(
+                package_id=package_id,
+                artifact_type='VALUE_MAPPING_EXTRACTION',
+                error_code=0,
+                error_type=error_type,
+                error_message=error_message[:500]
+            )
+
     def _save_error_log(self):
         """Save error log to JSON file"""
         output_file = self.download_dir / "value-mapping-extraction-errors.json"

@@ -106,6 +106,7 @@ def main():
         from downloader.discover_version_checker import DiscoverVersionChecker
         from downloader.artifact_zip_downloader import ArtifactZipDownloader
         from downloader.readonly_package_extractor import ReadOnlyPackageExtractor
+        from utils.error_collector import ErrorCollector
         from parsers.package_parser import PackageParser
         from parsers.iflow_parser import IFlowParser
         from parsers.resource_parser import ResourceParser
@@ -241,6 +242,9 @@ def main():
 
             # Track download results for batch parsing
             download_results = {}
+
+            # Create centralized error collector for all download/extraction phases
+            error_collector = ErrorCollector()
 
             # PHASE 1: DOWNLOAD ALL APIs
             logger.info("=" * 70)
@@ -511,7 +515,8 @@ def main():
                     config.api_base_url,
                     Path(download_path),
                     config.api_timeout,
-                    timestamp=run_timestamp
+                    timestamp=run_timestamp,
+                    error_collector=error_collector
                 )
                 download_results['partner_directory'] = downloader.download()
                 logger.info(f"Downloaded {download_results['partner_directory']['count']} binary parameters")
@@ -546,7 +551,8 @@ def main():
                         Path(download_path),
                         config.api_timeout,
                         parallel_downloads=config.parallel_downloads,
-                        timestamp=run_timestamp
+                        timestamp=run_timestamp,
+                        error_collector=error_collector
                     )
                     
                     # Get message mappings and value mappings (use empty lists if not available)
@@ -602,7 +608,8 @@ def main():
                 try:
                     extractor = ReadOnlyPackageExtractor(
                         Path(download_path),
-                        timestamp=run_timestamp
+                        timestamp=run_timestamp,
+                        error_collector=error_collector
                     )
 
                     extraction_stats = extractor.extract_all()
@@ -647,7 +654,8 @@ def main():
 
                 extractor = IFlowZipExtractor(
                     Path(download_path),
-                    timestamp=run_timestamp
+                    timestamp=run_timestamp,
+                    error_collector=error_collector
                 )
 
                 extraction_stats = extractor.extract_all()
@@ -705,7 +713,8 @@ def main():
                 logger.info("Extracting Script Collection content...")
                 extractor = ScriptCollectionExtractor(
                     Path(download_path),
-                    timestamp=run_timestamp
+                    timestamp=run_timestamp,
+                    error_collector=error_collector
                 )
                 sc_stats = extractor.extract_all()
                 total_extracted += sc_stats['total_files_extracted']
@@ -724,7 +733,8 @@ def main():
                 logger.info("Extracting Message Mapping content...")
                 extractor = MessageMappingExtractor(
                     Path(download_path),
-                    timestamp=run_timestamp
+                    timestamp=run_timestamp,
+                    error_collector=error_collector
                 )
                 mm_stats = extractor.extract_all()
                 total_extracted += mm_stats['mapping_files_extracted']
@@ -740,7 +750,8 @@ def main():
                 logger.info("Extracting Value Mapping content...")
                 extractor = ValueMappingExtractor(
                     Path(download_path),
-                    timestamp=run_timestamp
+                    timestamp=run_timestamp,
+                    error_collector=error_collector
                 )
                 vm_stats = extractor.extract_all()
                 total_extracted += vm_stats['xml_files_extracted']
@@ -1211,7 +1222,16 @@ def main():
             except Exception as e:
                 logger.error(f"Environment variable scanning failed: {e}")
                 logger.warning("Continuing without environment variable scan...")
-        
+
+            # Save centralized error collector (all download/extraction errors)
+            logger.info("")
+            logger.info("Saving centralized download/extraction error log...")
+            error_collector.save(Path(download_path) / "json-files")
+            if error_collector.error_count > 0:
+                logger.warning(f"Total download/extraction errors: {error_collector.error_count}")
+            else:
+                logger.info("No download/extraction errors to report")
+
         # PHASE 2: DATABASE OPERATIONS (only in FULL mode, unless --save-only)
         if config.execution_mode == "FULL" and not args.save_only:
             logger.info("")

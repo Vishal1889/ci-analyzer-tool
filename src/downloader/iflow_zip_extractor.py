@@ -9,6 +9,7 @@ from pathlib import Path
 from zipfile import ZipFile, BadZipFile
 from datetime import datetime
 from utils.logger import get_logger
+from utils.filename_sanitizer import sanitize_chars, sanitize_source_name
 
 logger = get_logger(__name__)
 
@@ -16,7 +17,7 @@ logger = get_logger(__name__)
 class IFlowZipExtractor:
     """Extracts content files (IFLW, scripts, mappings, schemas, archives) from IFlow ZIP archives"""
     
-    def __init__(self, download_dir: Path, timestamp: str = None):
+    def __init__(self, download_dir: Path, timestamp: str = None, error_collector=None):
         """
         Initialize IFlow ZIP Content Extractor
         
@@ -26,6 +27,7 @@ class IFlowZipExtractor:
         """
         self.download_dir = Path(download_dir)
         self.timestamp = timestamp
+        self.error_collector = error_collector
         
         # Source directory containing IFlow ZIPs
         self.iflows_zip_dir = self.download_dir / "iflows" / "zip-files"
@@ -126,10 +128,6 @@ class IFlowZipExtractor:
                 stats["iflow_zips_failed"] += 1
                 logger.error(f"  Failed to process {zip_path.name}: {e}")
                 self._track_error(zip_path.name, "ZIP_PROCESSING", str(e))
-        
-        # Save error log if there are any errors
-        if self.errors:
-            self._save_error_log()
         
         logger.info(f"Extraction completed. Processed {stats['iflow_zips_processed']}/{stats['iflow_zips_attempted']} ZIPs")
         logger.info(f"  Total files extracted: {stats['total_files_extracted']}")
@@ -286,7 +284,7 @@ class IFlowZipExtractor:
                     if source_name.endswith(('.groovy', '.gsh')):
                         # Groovy script
                         content = zip_file.read(file_info.filename)
-                        output_filename = f"{iflow_id}---{source_name}"
+                        output_filename = f"{iflow_id}---{sanitize_chars(source_name)}"
                         output_path = groovy_dir / output_filename
                         
                         with open(output_path, 'wb') as f:
@@ -298,7 +296,7 @@ class IFlowZipExtractor:
                     elif source_name.endswith('.js'):
                         # JavaScript
                         content = zip_file.read(file_info.filename)
-                        output_filename = f"{iflow_id}---{source_name}"
+                        output_filename = f"{iflow_id}---{sanitize_chars(source_name)}"
                         output_path = js_dir / output_filename
                         
                         with open(output_path, 'wb') as f:
@@ -351,21 +349,21 @@ class IFlowZipExtractor:
                     # Determine target directory based on extension
                     if source_name.endswith('.mmap'):
                         # Message mapping
-                        output_filename = f"{iflow_id}---{source_name}"
+                        output_filename = f"{iflow_id}---{sanitize_source_name(source_name)}"
                         output_path = mmap_dir / output_filename
                         mmap_count += 1
                         logger.debug(f"    Extracted message mapping: {output_filename}")
                     
                     elif source_name.endswith(('.xslt', '.xsl')):
                         # XSLT mapping
-                        output_filename = f"{iflow_id}---{source_name}"
+                        output_filename = f"{iflow_id}---{sanitize_chars(source_name)}"
                         output_path = xslt_dir / output_filename
                         xslt_count += 1
                         logger.debug(f"    Extracted XSLT: {output_filename}")
                     
                     else:
                         # Other mapping types
-                        output_filename = f"{iflow_id}---{source_name}"
+                        output_filename = f"{iflow_id}---{sanitize_source_name(source_name)}"
                         output_path = other_dir / output_filename
                         other_count += 1
                         logger.debug(f"    Extracted other mapping: {output_filename}")
@@ -411,12 +409,12 @@ class IFlowZipExtractor:
                         content = zip_file.read(file_info.filename)
                         
                         # Create output filename
-                        output_filename = f"{iflow_id}---{source_name}"
+                        output_filename = f"{iflow_id}---{sanitize_source_name(source_name)}"
                         output_path = target_dir / output_filename
-                        
+
                         with open(output_path, 'wb') as f:
                             f.write(content)
-                        
+
                         # Increment appropriate counter
                         if schema_type == 'edmx':
                             edmx_count += 1
@@ -459,12 +457,12 @@ class IFlowZipExtractor:
                     content = zip_file.read(file_info.filename)
                     
                     # Create output filename
-                    output_filename = f"{iflow_id}---{source_name}"
+                    output_filename = f"{iflow_id}---{sanitize_source_name(source_name)}"
                     output_path = target_dir / output_filename
-                    
+
                     with open(output_path, 'wb') as f:
                         f.write(content)
-                    
+
                     count += 1
                     logger.debug(f"    Extracted archive: {output_filename}")
                 
@@ -481,8 +479,25 @@ class IFlowZipExtractor:
             "ErrorMessage": error_message[:500],  # Limit message length
             "Timestamp": datetime.now().isoformat()
         }
-        
+
         self.errors.append(error_record)
+
+        # Forward to centralized error collector
+        if self.error_collector:
+            # Parse package_id and iflow_id from zip_name (format: PackageID---IflowID.zip)
+            stem = zip_name.rsplit('.', 1)[0] if '.' in zip_name else zip_name
+            if '---' in stem:
+                package_id, iflow_id = stem.split('---', 1)
+            else:
+                package_id, iflow_id = stem, ''
+            self.error_collector.add_error(
+                package_id=package_id,
+                artifact_type='IFLOW_EXTRACTION',
+                error_code=0,
+                error_type=error_type,
+                error_message=error_message[:500],
+                iflow_id=iflow_id
+            )
     
     def _save_error_log(self):
         """Save error log to JSON file"""

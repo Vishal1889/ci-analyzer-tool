@@ -30,8 +30,8 @@ class PartnerDirectoryDownloader(BaseDownloader):
         'crt': '.crt'
     }
     
-    def __init__(self, oauth_client, api_base_url: str, download_dir: Path, 
-                 timeout: int = 30, timestamp: str = None):
+    def __init__(self, oauth_client, api_base_url: str, download_dir: Path,
+                 timeout: int = 30, timestamp: str = None, error_collector=None):
         """
         Initialize Partner Directory downloader
         
@@ -43,12 +43,13 @@ class PartnerDirectoryDownloader(BaseDownloader):
             timestamp: Optional timestamp for organized downloads
         """
         super().__init__(oauth_client, api_base_url, download_dir, timeout, timestamp)
-        
+
         # Target directory for binary files
         self.binary_dir = self.downloads_dir / "partner-directory"
-        
+
         # Track extraction errors
         self.extraction_errors = []
+        self.error_collector = error_collector
         
         logger.info("PartnerDirectoryDownloader initialized")
     
@@ -201,11 +202,7 @@ class PartnerDirectoryDownloader(BaseDownloader):
             except Exception as e:
                 logger.error(f"Failed to extract {pid}---{item_id}: {e}")
                 self._track_extraction_error(pid, item_id, content_type, str(e))
-        
-        # Save extraction error log if there are errors
-        if self.extraction_errors:
-            self._save_extraction_error_log()
-        
+
         return stats
     
     def _get_file_extension(self, content_type: str) -> str:
@@ -230,8 +227,19 @@ class PartnerDirectoryDownloader(BaseDownloader):
             "ErrorMessage": error_message[:500],
             "Timestamp": datetime.now().isoformat()
         }
-        
+
         self.extraction_errors.append(error_record)
+
+        # Forward to centralized error collector
+        if self.error_collector:
+            self.error_collector.add_error(
+                package_id=pid or '',
+                artifact_type='PARTNER_DIRECTORY',
+                error_code=0,
+                error_type='EXTRACTION_ERROR',
+                error_message=error_message[:500],
+                iflow_id=item_id or ''
+            )
     
     def _save_extraction_error_log(self):
         """Save extraction error log to JSON file"""
