@@ -1134,13 +1134,16 @@ class CIAnalyzerUI(ctk.CTk):
             end_idx = tb.index("end-1c")
 
             # ── Improvement #1: colour-coded log lines ─────────────────────────
+            # Parse level from "HH:MM:SS | LEVEL | message" to avoid false
+            # positives from artifact names containing "Error" or "Warning".
+            parts = text.split(" | ", 2)
+            level = parts[1].strip().upper() if len(parts) >= 2 else ""
             upper = text.upper()
-            if "ERROR" in upper or "CRITICAL" in upper or "EXCEPTION" in upper:
+            if level in ("ERROR", "CRITICAL") or (not level and ("[ERROR]" in upper or "EXCEPTION" in upper)):
                 tb.tag_add("error", start_idx, end_idx)
-            elif "WARNING" in upper or "WARN" in upper:
+            elif level == "WARNING" or (not level and "WARNING" in upper):
                 tb.tag_add("warning", start_idx, end_idx)
-            elif (upper.startswith("▶") or upper.startswith("PHASE")
-                    or "[PHASE" in upper or "PHASE " in upper):
+            elif upper.startswith("▶") or "[PHASE" in upper or "PHASE " in upper:
                 tb.tag_add("phase", start_idx, end_idx)
             elif "✅" in text or "COMPLETED SUCCESSFULLY" in upper:
                 tb.tag_add("success", start_idx, end_idx)

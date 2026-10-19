@@ -182,6 +182,11 @@ class ArtifactZipDownloader:
         ]
         if iflow_tasks:
             logger.info(f"Downloading {len(iflow_tasks)} iflows across {len(edit_allowed_packages)} packages...")
+            pkg_iflow_counts: Dict[str, int] = {}
+            for t in iflow_tasks:
+                pkg_iflow_counts[t[2]] = pkg_iflow_counts.get(t[2], 0) + 1
+            for i, pid in enumerate(sorted(pkg_iflow_counts), 1):
+                logger.info(f"  Package {i}/{len(pkg_iflow_counts)} ({pid}): {pkg_iflow_counts[pid]} iflow(s)")
             r = self._download_batch(iflow_tasks, self._download_iflow_zip, label="iflow")
             stats["iflows_attempted"] = r["attempted"]
             stats["iflows_downloaded"] = r["downloaded"]
@@ -241,21 +246,25 @@ class ArtifactZipDownloader:
         if not tasks:
             return stats
 
+        total = len(tasks)
+        completed = 0
         workers = min(self.parallel_downloads, len(tasks))
         with ThreadPoolExecutor(max_workers=workers) as executor:
             future_to_task = {executor.submit(download_fn, *t): t for t in tasks}
             for future in as_completed(future_to_task):
                 task = future_to_task[future]
                 stats["attempted"] += 1
+                completed += 1
                 try:
                     if future.result():
                         stats["downloaded"] += 1
-                        logger.info(f"  Downloaded {label}: {task[0]}")
+                        logger.info(f"  [{label} {completed}/{total}] {task[0]}")
                     else:
                         stats["failed"] += 1
+                        logger.warning(f"  [{label} {completed}/{total}] FAILED: {task[0]}")
                 except Exception as e:
                     stats["failed"] += 1
-                    logger.error(f"  Exception downloading {label} {task[0]}: {e}")
+                    logger.error(f"  [{label} {completed}/{total}] Exception: {task[0]}: {e}")
 
         return stats
     
