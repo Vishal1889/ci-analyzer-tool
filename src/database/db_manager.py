@@ -65,7 +65,7 @@ class DynamicDatabaseManager:
         'value_mapping':              ['ArtifactContent', 'Description', 'Id', 'Name', 'PackageId', 'Version'],
         'script_collection':          ['Id', 'Name', 'PackageId', 'Version'],
         'iflow':                      ['Id', 'Name', 'PackageId', 'Version', 'Mode'],
-        'environment_variable_check': ['envVariableCount', 'envVariableList', 'fileName', 'fileType', 'parentName'],
+        'environment_variable_check': ['envVariableCount', 'envVariableList', 'fileName', 'fileType', 'packageId', 'parentName', 'parentType'],
     }
     
     def __init__(self, db_path: str, tenant_id: str, captured_at: str):
@@ -218,17 +218,15 @@ class DynamicDatabaseManager:
         
         return table_name
     
-    def insert_from_json(self, table_name: str, json_file: Path, origin: str, 
-                        progress_interval: int = 5000) -> int:
+    def insert_from_json(self, table_name: str, json_file: Path, origin: str) -> int:
         """
         Bulk insert data from JSON file
-        
+
         Args:
             table_name: Target table name
             json_file: Path to JSON file
             origin: 'odata' or 'iflw'
-            progress_interval: Log progress every N rows
-            
+
         Returns:
             Number of rows inserted
         """
@@ -252,10 +250,10 @@ class DynamicDatabaseManager:
         # Get column names from first row (with table-specific exclusions)
         json_columns = self._infer_columns_from_rows(rows, table_name)
         
-        # Build INSERT statement
-        all_columns = ['tenant_id', 'captured_at'] + json_columns
-        placeholders = ','.join(['?' for _ in all_columns])
-        insert_sql = f"INSERT INTO {table_name} ({','.join(all_columns)}) VALUES ({placeholders})"
+        # Build INSERT statement — quote column names to handle reserved words
+        quoted_cols = ['tenant_id', 'captured_at'] + [f'"{c}"' for c in json_columns]
+        placeholders = ','.join(['?' for _ in quoted_cols])
+        insert_sql = f"INSERT INTO {table_name} ({','.join(quoted_cols)}) VALUES ({placeholders})"
         
         # Prepare data for bulk insert
         insert_data = []
@@ -280,13 +278,7 @@ class DynamicDatabaseManager:
         # Bulk insert with transaction
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            
-            for i, row_data in enumerate(insert_data, 1):
-                cursor.execute(insert_sql, row_data)
-                
-                # Progress logging
-                if i % progress_interval == 0:
-                    logger.debug(f"  Inserted {i}/{len(insert_data)} rows...")
+            cursor.executemany(insert_sql, insert_data)
         
         duration = time.time() - start_time
         logger.info(f"  Inserted {len(insert_data)} rows into {table_name} in {duration:.2f}s")

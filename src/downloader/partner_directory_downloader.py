@@ -165,7 +165,7 @@ class PartnerDirectoryDownloader(BaseDownloader):
         for item in items:
             pid = item.get('Pid')
             item_id = item.get('Id')
-            content_type = item.get('ContentType', 'unknown')
+            content_type = item.get('ContentType') or 'unknown'
             value = item.get('Value')
             
             # Skip if value is empty or None

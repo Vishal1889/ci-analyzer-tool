@@ -18,7 +18,7 @@ logger = get_api_logger(__name__)
 class ConfigurationDownloader(BaseDownloader):
     """Downloader for Integration Flow Configurations API with parallel processing"""
     
-    def __init__(self, *args, parallel_downloads: int = 1, **kwargs):
+    def __init__(self, *args, parallel_downloads: int = 5, **kwargs):
         """
         Initialize Configuration downloader
         
@@ -28,6 +28,7 @@ class ConfigurationDownloader(BaseDownloader):
         super().__init__(*args, **kwargs)
         self.parallel_downloads = max(1, min(10, parallel_downloads))
         self.result_lock = Lock()  # Thread-safe result aggregation
+        self._iflow_package_cache: Dict[str, str] | None = None  # Lazy-loaded lookup
         
     def download(self) -> Dict[str, Any]:
         """
@@ -219,29 +220,19 @@ class ConfigurationDownloader(BaseDownloader):
             return []
     
     def _get_package_id_for_iflow(self, iflow_id: str) -> str:
-        """
-        Get PackageId for a given IFlow ID by reading from iflows.json
-        
-        Args:
-            iflow_id: IFlow ID
-            
-        Returns:
-            PackageId for the IFlow, or None if not found
-        """
-        iflows_file = self.json_dir / 'iflows.json'
-        
-        try:
-            with open(iflows_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            # Find the IFlow and return its PackageId
-            if 'd' in data and 'results' in data['d']:
-                for iflow in data['d']['results']:
-                    if iflow.get('Id') == iflow_id:
-                        return iflow.get('PackageId')
-            
-            return None
-            
-        except Exception as e:
-            logger.logger.error(f"Error getting PackageId for IFlow {iflow_id}: {e}")
-            return None
+        """Get PackageId for a given IFlow ID. Loads iflows.json once and caches it."""
+        if self._iflow_package_cache is None:
+            cache: Dict[str, str] = {}
+            iflows_file = self.json_dir / 'iflows.json'
+            try:
+                with open(iflows_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                for iflow in data.get('d', {}).get('results', []):
+                    if iflow.get('Id') and iflow.get('PackageId'):
+                        cache[iflow['Id']] = iflow['PackageId']
+                self._iflow_package_cache = cache  # only committed on success
+            except Exception as e:
+                logger.logger.error(f"Error loading iflows.json for package lookup: {e}")
+                # leave _iflow_package_cache as None so the next call retries
+
+        return self._iflow_package_cache.get(iflow_id)

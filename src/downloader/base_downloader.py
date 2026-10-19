@@ -37,14 +37,17 @@ class BaseDownloader:
         
         # Set download directory (organized by timestamp if provided)
         self.downloads_dir = Path(downloads_dir)
-        
+
         # JSON files subdirectory
         self.json_dir = self.downloads_dir / "json-files"
-        
+
         # Ensure directories exist
         self.downloads_dir.mkdir(parents=True, exist_ok=True)
         self.json_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        # Persistent HTTP session — reuses TCP/TLS connections across requests
+        self._session = requests.Session()
+
         logger.logger.debug(f"Downloader initialized with base URL: {api_base_url}")
         logger.logger.debug(f"Downloads directory: {self.downloads_dir}")
     
@@ -85,7 +88,7 @@ class BaseDownloader:
         # Make request
         start_time = time.time()
         try:
-            response = requests.get(
+            response = self._session.get(
                 url,
                 headers=headers,
                 params=params,
@@ -172,7 +175,8 @@ class BaseDownloader:
                     
             except requests.RequestException as e:
                 logger.logger.error(f"Error fetching page {page}: {e}")
-                break
+                logger.logger.warning(f"Pagination aborted at page {page} — {len(all_items)} items collected so far may be incomplete")
+                raise
         
         return all_items
     

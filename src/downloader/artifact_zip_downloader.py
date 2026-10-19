@@ -5,6 +5,7 @@ Downloads package and iflow ZIP files
 
 import json
 import time
+import requests
 from typing import Dict, Any, List, Optional, Union
 from pathlib import Path
 from datetime import datetime
@@ -18,14 +19,14 @@ logger = get_logger(__name__)
 
 class ArtifactZipDownloader:
     """Downloads artifact ZIP files for packages and iflows"""
-    
+
     def __init__(self, auth_client: Union[OAuthClient, BasicAuthClient], api_base_url: str,
                  download_dir: Path, timeout: int = 30,
                  parallel_downloads: int = 5, timestamp: str = None,
                  error_collector=None):
         """
         Initialize Artifact ZIP Downloader
-        
+
         Args:
             auth_client: Authentication client (OAuth or Basic Auth)
             api_base_url: Base URL for the API
@@ -44,7 +45,10 @@ class ArtifactZipDownloader:
 
         # Track download errors
         self.errors = []
-        
+
+        # Persistent HTTP session — reuses TCP/TLS connections across all ZIP downloads
+        self._session = requests.Session()
+
         logger.info("ArtifactZipDownloader initialized")
     
     def download_all(self, packages: List[Dict[str, Any]], iflows: List[Dict[str, Any]], 
@@ -113,90 +117,56 @@ class ArtifactZipDownloader:
     
     def download_read_only_packages(self, packages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Download ZIP files for READ_ONLY packages
-        
-        Args:
-            packages: List of package dictionaries
-            
-        Returns:
-            Dictionary with download statistics
+        Download ZIP files for READ_ONLY packages in parallel.
         """
-        # Filter READ_ONLY packages
         read_only_packages = [pkg for pkg in packages if pkg.get('Mode') == 'READ_ONLY']
-        
+
         if not read_only_packages:
             logger.info("No READ_ONLY packages to download")
             return {"attempted": 0, "downloaded": 0, "failed": 0}
-        
+
         logger.info(f"Found {len(read_only_packages)} READ_ONLY packages to download")
-        
-        # Create directory with zip-files subdirectory
+
         output_dir = self.download_dir / "read-only-packages" / "zip-files"
         output_dir.mkdir(parents=True, exist_ok=True)
-        
-        stats = {"attempted": 0, "downloaded": 0, "failed": 0}
-        
-        for idx, package in enumerate(read_only_packages, 1):
-            package_id = package.get('Id')
-            logger.info(f"Downloading package {idx}/{len(read_only_packages)}: {package_id}")
-            
-            stats["attempted"] += 1
-            success = self._download_package_zip(package_id, output_dir)
-            
-            if success:
-                stats["downloaded"] += 1
-            else:
-                stats["failed"] += 1
-        
-        return stats
+
+        tasks = [(pkg.get('Id'), output_dir) for pkg in read_only_packages]
+        return self._download_batch(tasks, self._download_package_zip, label="package")
     
-    def download_edit_allowed_artifacts(self, packages: List[Dict[str, Any]], 
+    def download_edit_allowed_artifacts(self, packages: List[Dict[str, Any]],
                                        iflows: List[Dict[str, Any]],
                                        script_collections: List[Dict[str, Any]],
                                        message_mappings: List[Dict[str, Any]],
                                        value_mappings: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Download ZIP files for iflows, script collections, message mappings, and value mappings in EDIT_ALLOWED packages
-        Process package-by-package: iflows → script collections → message mappings → value mappings
-        
-        Args:
-            packages: List of package dictionaries
-            iflows: List of iflow dictionaries
-            script_collections: List of script collection dictionaries
-            message_mappings: List of message mapping dictionaries
-            value_mappings: List of value mapping dictionaries
-            
-        Returns:
-            Dictionary with download statistics
+        Download ZIP files for all EDIT_ALLOWED artifacts using a flat thread pool per
+        artifact type (all packages submitted together rather than package-by-package).
         """
-        # Filter EDIT_ALLOWED packages
         edit_allowed_packages = [pkg for pkg in packages if pkg.get('Mode') == 'EDIT_ALLOWED']
-        
+
         if not edit_allowed_packages:
             logger.info("No EDIT_ALLOWED packages to download")
             return {
-                "packages": 0, 
+                "packages": 0,
                 "iflows_attempted": 0, "iflows_downloaded": 0, "iflows_failed": 0,
                 "script_collections_attempted": 0, "script_collections_downloaded": 0, "script_collections_failed": 0,
                 "message_mappings_attempted": 0, "message_mappings_downloaded": 0, "message_mappings_failed": 0,
                 "value_mappings_attempted": 0, "value_mappings_downloaded": 0, "value_mappings_failed": 0
             }
-        
+
         logger.info(f"Found {len(edit_allowed_packages)} EDIT_ALLOWED packages")
-        
-        # Create directories with zip-files subdirectories
+
         iflows_dir = self.download_dir / "iflows" / "zip-files"
         iflows_dir.mkdir(parents=True, exist_ok=True)
-        
         script_collections_dir = self.download_dir / "script-collections" / "zip-files"
         script_collections_dir.mkdir(parents=True, exist_ok=True)
-        
         message_mappings_dir = self.download_dir / "message-mappings" / "zip-files"
         message_mappings_dir.mkdir(parents=True, exist_ok=True)
-        
         value_mappings_dir = self.download_dir / "value-mappings" / "zip-files"
         value_mappings_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        edit_pkg_ids = {pkg.get('Id') for pkg in edit_allowed_packages}
+
         stats = {
             "packages": len(edit_allowed_packages),
             "iflows_attempted": 0, "iflows_downloaded": 0, "iflows_failed": 0,
@@ -204,170 +174,118 @@ class ArtifactZipDownloader:
             "message_mappings_attempted": 0, "message_mappings_downloaded": 0, "message_mappings_failed": 0,
             "value_mappings_attempted": 0, "value_mappings_downloaded": 0, "value_mappings_failed": 0
         }
-        
-        # Process each package sequentially
-        for idx, package in enumerate(edit_allowed_packages, 1):
-            package_id = package.get('Id')
-            logger.info(f"Processing package {idx}/{len(edit_allowed_packages)}: {package_id}")
-            
-            # 1. Download iflows for this package
-            package_iflows = [iflow for iflow in iflows if iflow.get('PackageId') == package_id]
-            if package_iflows:
-                logger.info(f"  Downloading {len(package_iflows)} iflows for {package_id}")
-                iflow_stats = self._download_package_iflows(package_id, package_iflows, iflows_dir)
-                stats["iflows_attempted"] += iflow_stats["attempted"]
-                stats["iflows_downloaded"] += iflow_stats["downloaded"]
-                stats["iflows_failed"] += iflow_stats["failed"]
-            
-            # 2. Download script collections for this package
-            package_scripts = [sc for sc in script_collections if sc.get('PackageId') == package_id]
-            if package_scripts:
-                logger.info(f"  Downloading {len(package_scripts)} script collections for {package_id}")
-                script_stats = self._download_package_script_collections(package_id, package_scripts, script_collections_dir)
-                stats["script_collections_attempted"] += script_stats["attempted"]
-                stats["script_collections_downloaded"] += script_stats["downloaded"]
-                stats["script_collections_failed"] += script_stats["failed"]
-            
-            # 3. Download message mappings for this package
-            package_message_mappings = [mm for mm in message_mappings if mm.get('PackageId') == package_id]
-            if package_message_mappings:
-                logger.info(f"  Downloading {len(package_message_mappings)} message mappings for {package_id}")
-                mm_stats = self._download_package_message_mappings(package_id, package_message_mappings, message_mappings_dir)
-                stats["message_mappings_attempted"] += mm_stats["attempted"]
-                stats["message_mappings_downloaded"] += mm_stats["downloaded"]
-                stats["message_mappings_failed"] += mm_stats["failed"]
-            
-            # 4. Download value mappings for this package
-            package_value_mappings = [vm for vm in value_mappings if vm.get('PackageId') == package_id]
-            if package_value_mappings:
-                logger.info(f"  Downloading {len(package_value_mappings)} value mappings for {package_id}")
-                vm_stats = self._download_package_value_mappings(package_id, package_value_mappings, value_mappings_dir)
-                stats["value_mappings_attempted"] += vm_stats["attempted"]
-                stats["value_mappings_downloaded"] += vm_stats["downloaded"]
-                stats["value_mappings_failed"] += vm_stats["failed"]
-        
+
+        # 1. Iflows — flat pool across all packages
+        iflow_tasks = [
+            (iflow.get('Id'), iflow.get('Version'), iflow.get('PackageId'), iflows_dir)
+            for iflow in iflows if iflow.get('PackageId') in edit_pkg_ids
+        ]
+        if iflow_tasks:
+            logger.info(f"Downloading {len(iflow_tasks)} iflows across {len(edit_allowed_packages)} packages...")
+            r = self._download_batch(iflow_tasks, self._download_iflow_zip, label="iflow")
+            stats["iflows_attempted"] = r["attempted"]
+            stats["iflows_downloaded"] = r["downloaded"]
+            stats["iflows_failed"] = r["failed"]
+
+        # 2. Script collections — flat pool
+        sc_tasks = [
+            (sc.get('Id'), sc.get('Version'), sc.get('PackageId'), script_collections_dir)
+            for sc in script_collections if sc.get('PackageId') in edit_pkg_ids
+        ]
+        if sc_tasks:
+            logger.info(f"Downloading {len(sc_tasks)} script collections...")
+            r = self._download_batch(sc_tasks, self._download_script_collection_zip, label="script collection")
+            stats["script_collections_attempted"] = r["attempted"]
+            stats["script_collections_downloaded"] = r["downloaded"]
+            stats["script_collections_failed"] = r["failed"]
+
+        # 3. Message mappings — flat pool
+        mm_tasks = [
+            (mm.get('Id'), mm.get('Version'), mm.get('PackageId'), message_mappings_dir)
+            for mm in message_mappings if mm.get('PackageId') in edit_pkg_ids
+        ]
+        if mm_tasks:
+            logger.info(f"Downloading {len(mm_tasks)} message mappings...")
+            r = self._download_batch(mm_tasks, self._download_message_mapping_zip, label="message mapping")
+            stats["message_mappings_attempted"] = r["attempted"]
+            stats["message_mappings_downloaded"] = r["downloaded"]
+            stats["message_mappings_failed"] = r["failed"]
+
+        # 4. Value mappings — flat pool
+        vm_tasks = [
+            (vm.get('Id'), vm.get('Version'), vm.get('PackageId'), value_mappings_dir)
+            for vm in value_mappings if vm.get('PackageId') in edit_pkg_ids
+        ]
+        if vm_tasks:
+            logger.info(f"Downloading {len(vm_tasks)} value mappings...")
+            r = self._download_batch(vm_tasks, self._download_value_mapping_zip, label="value mapping")
+            stats["value_mappings_attempted"] = r["attempted"]
+            stats["value_mappings_downloaded"] = r["downloaded"]
+            stats["value_mappings_failed"] = r["failed"]
+
         return stats
-    
-    def _download_package_iflows(self, package_id: str, iflows: List[Dict[str, Any]], 
-                                 output_dir: Path) -> Dict[str, Any]:
+
+    def _download_batch(self, tasks: list, download_fn, label: str = "artifact") -> Dict[str, Any]:
         """
-        Download iflow ZIPs for a single package (parallel)
-        
+        Submit a list of (arg, ...) tuples to a flat ThreadPoolExecutor and collect results.
+
         Args:
-            package_id: Package ID
-            iflows: List of iflow dicts for this package
-            output_dir: Output directory (iflows/)
-            
+            tasks: List of argument tuples passed to download_fn via *args.
+            download_fn: Callable that returns True on success, False on failure.
+            label: Name used in log messages.
+
         Returns:
-            Dict with download stats
+            Dict with 'attempted', 'downloaded', 'failed' counts.
         """
         stats = {"attempted": 0, "downloaded": 0, "failed": 0}
-        
-        if not iflows:
+        if not tasks:
             return stats
-        
-        # Determine actual parallelism
-        actual_workers = min(self.parallel_downloads, len(iflows))
-        
-        # Download iflows in parallel
-        with ThreadPoolExecutor(max_workers=actual_workers) as executor:
-            future_to_iflow = {
-                executor.submit(self._download_iflow_zip, 
-                              iflow.get('Id'), iflow.get('Version'), 
-                              package_id, output_dir): iflow
-                for iflow in iflows
-            }
-            
-            for future in as_completed(future_to_iflow):
-                iflow_info = future_to_iflow[future]
+
+        workers = min(self.parallel_downloads, len(tasks))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_task = {executor.submit(download_fn, *t): t for t in tasks}
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
                 stats["attempted"] += 1
-                
                 try:
-                    success = future.result()
-                    if success:
+                    if future.result():
                         stats["downloaded"] += 1
-                        logger.info(f"    Downloaded: {package_id}---{iflow_info.get('Id')}.zip")
+                        logger.info(f"  Downloaded {label}: {task[0]}")
                     else:
                         stats["failed"] += 1
                 except Exception as e:
                     stats["failed"] += 1
-                    logger.error(f"    Exception downloading {iflow_info.get('Id')}: {e}")
-        
+                    logger.error(f"  Exception downloading {label} {task[0]}: {e}")
+
         return stats
     
-    def _download_package_script_collections(self, package_id: str, 
+    def _download_package_iflows(self, package_id: str, iflows: List[Dict[str, Any]],
+                                 output_dir: Path) -> Dict[str, Any]:
+        """Kept for backwards compatibility — delegates to _download_batch."""
+        tasks = [(iflow.get('Id'), iflow.get('Version'), package_id, output_dir) for iflow in iflows]
+        return self._download_batch(tasks, self._download_iflow_zip, label="iflow")
+
+    def _download_package_script_collections(self, package_id: str,
                                             script_collections: List[Dict[str, Any]],
                                             output_dir: Path) -> Dict[str, Any]:
-        """
-        Download script collection ZIPs for a single package (parallel)
-        
-        Args:
-            package_id: Package ID
-            script_collections: List of script collection dicts for this package
-            output_dir: Output directory (script-collections/)
-            
-        Returns:
-            Dict with download stats
-        """
-        stats = {"attempted": 0, "downloaded": 0, "failed": 0}
-        
-        if not script_collections:
-            return stats
-        
-        # Determine actual parallelism
-        actual_workers = min(self.parallel_downloads, len(script_collections))
-        
-        # Download script collections in parallel
-        with ThreadPoolExecutor(max_workers=actual_workers) as executor:
-            future_to_script = {
-                executor.submit(self._download_script_collection_zip,
-                              sc.get('Id'), sc.get('Version'),
-                              package_id, output_dir): sc
-                for sc in script_collections
-            }
-            
-            for future in as_completed(future_to_script):
-                script_info = future_to_script[future]
-                stats["attempted"] += 1
-                
-                try:
-                    success = future.result()
-                    if success:
-                        stats["downloaded"] += 1
-                        logger.info(f"    Downloaded: {package_id}---{script_info.get('Id')}.zip")
-                    else:
-                        stats["failed"] += 1
-                except Exception as e:
-                    stats["failed"] += 1
-                    logger.error(f"    Exception downloading {script_info.get('Id')}: {e}")
+        """Kept for backwards compatibility — delegates to _download_batch."""
+        tasks = [(sc.get('Id'), sc.get('Version'), package_id, output_dir) for sc in script_collections]
+        return self._download_batch(tasks, self._download_script_collection_zip, label="script collection")
         
         return stats
     
     def _download_package_zip(self, package_id: str, output_dir: Path) -> bool:
-        """
-        Download a single package ZIP
-        
-        Args:
-            package_id: Package ID
-            output_dir: Output directory
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        import requests
-        
+        """Download a single package ZIP."""
         url = f"{self.api_base_url}/IntegrationPackages('{package_id}')/$value"
         output_file = output_dir / f"{package_id}.zip"
-        
-        # Retry logic
+
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
-                # Use generic auth header (works with OAuth or Basic Auth)
                 headers = self.auth_client.get_auth_header()
-                
+
                 logger.debug(f"  GET {url} (attempt {attempt}/{max_retries})")
-                response = requests.get(url, headers=headers, timeout=self.timeout, stream=True)
+                response = self._session.get(url, headers=headers, timeout=self.timeout, stream=True)
                 
                 if response.status_code == 200:
                     # Save ZIP file
@@ -442,35 +360,18 @@ class ArtifactZipDownloader:
         
         return False
     
-    def _download_iflow_zip(self, iflow_id: str, version: str, package_id: str, 
+    def _download_iflow_zip(self, iflow_id: str, version: str, package_id: str,
                            output_dir: Path) -> bool:
-        """
-        Download a single iflow ZIP
-        
-        Args:
-            iflow_id: IFlow ID
-            version: IFlow version (from JSON, for logging only)
-            package_id: Package ID (for filename)
-            output_dir: Output directory (should be iflows/zip-files/)
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        import requests
-        
-        # Always use 'Active' to get the latest/active version, regardless of JSON version
+        """Download a single iflow ZIP (always uses Version='Active')."""
         logger.debug(f"Downloading IFlow {iflow_id} to directory: {output_dir}")
         url = f"{self.api_base_url}/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='Active')/$value"
         output_file = output_dir / f"{package_id}---{iflow_id}.zip"
-        
-        # Retry logic
+
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
-                # Use generic auth header (works with OAuth or Basic Auth)
                 headers = self.auth_client.get_auth_header()
-                
-                response = requests.get(url, headers=headers, timeout=self.timeout, stream=True)
+                response = self._session.get(url, headers=headers, timeout=self.timeout, stream=True)
                 
                 if response.status_code == 200:
                     # Save ZIP file
@@ -503,11 +404,13 @@ class ArtifactZipDownloader:
                 if attempt < max_retries:
                     time.sleep(2 ** attempt)
                     continue
+                output_file.unlink(missing_ok=True)
                 self._track_error(package_id, iflow_id, version, "IFLOW",
                                 None, "CONNECTION_ERROR", str(e), output_file)
                 return False
             except Exception as e:
                 logger.error(f"  Error downloading iflow {iflow_id}: {e}")
+                output_file.unlink(missing_ok=True)
                 self._track_error(package_id, iflow_id, version, "IFLOW",
                                 None, "UNKNOWN_ERROR", str(e), output_file)
                 return False
@@ -516,33 +419,16 @@ class ArtifactZipDownloader:
     
     def _download_script_collection_zip(self, script_id: str, version: str, package_id: str,
                                        output_dir: Path) -> bool:
-        """
-        Download a single script collection ZIP
-        
-        Args:
-            script_id: Script collection ID
-            version: Script collection version (from JSON, for logging only)
-            package_id: Package ID (for filename)
-            output_dir: Output directory (should be script-collections/zip-files/)
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        import requests
-        
-        # Always use 'Active' to get the latest/active version, regardless of JSON version
+        """Download a single script collection ZIP (always uses Version='Active')."""
         logger.debug(f"Downloading Script Collection {script_id} to directory: {output_dir}")
         url = f"{self.api_base_url}/ScriptCollectionDesigntimeArtifacts(Id='{script_id}',Version='Active')/$value"
         output_file = output_dir / f"{package_id}---{script_id}.zip"
-        
-        # Retry logic
+
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
-                # Use generic auth header (works with OAuth or Basic Auth)
                 headers = self.auth_client.get_auth_header()
-                
-                response = requests.get(url, headers=headers, timeout=self.timeout, stream=True)
+                response = self._session.get(url, headers=headers, timeout=self.timeout, stream=True)
                 
                 if response.status_code == 200:
                     # Save ZIP file
@@ -586,111 +472,50 @@ class ArtifactZipDownloader:
         
         return False
     
-    def _download_package_message_mappings(self, package_id: str, 
+    def _download_package_message_mappings(self, package_id: str,
                                           message_mappings: List[Dict[str, Any]],
                                           output_dir: Path) -> Dict[str, Any]:
-        """
-        Download message mapping ZIPs for a single package (parallel)
-        
-        Args:
-            package_id: Package ID
-            message_mappings: List of message mapping dicts for this package
-            output_dir: Output directory (message-mappings/)
-            
-        Returns:
-            Dict with download stats
-        """
-        stats = {"attempted": 0, "downloaded": 0, "failed": 0}
-        
-        if not message_mappings:
-            return stats
-        
-        # Determine actual parallelism
-        actual_workers = min(self.parallel_downloads, len(message_mappings))
-        
-        # Download message mappings in parallel
-        with ThreadPoolExecutor(max_workers=actual_workers) as executor:
-            future_to_mapping = {
-                executor.submit(self._download_message_mapping_zip,
-                              mm.get('Id'), mm.get('Version'),
-                              package_id, output_dir): mm
-                for mm in message_mappings
-            }
-            
-            for future in as_completed(future_to_mapping):
-                mapping_info = future_to_mapping[future]
-                stats["attempted"] += 1
-                
-                try:
-                    success = future.result()
-                    if success:
-                        stats["downloaded"] += 1
-                        logger.info(f"    Downloaded: {package_id}---{mapping_info.get('Id')}.zip")
-                    else:
-                        stats["failed"] += 1
-                except Exception as e:
-                    stats["failed"] += 1
-                    logger.error(f"    Exception downloading message mapping {mapping_info.get('Id')}: {e}")
-        
-        return stats
-    
+        """Kept for backwards compatibility — delegates to _download_batch."""
+        tasks = [(mm.get('Id'), mm.get('Version'), package_id, output_dir) for mm in message_mappings]
+        return self._download_batch(tasks, self._download_message_mapping_zip, label="message mapping")
+
     def _download_message_mapping_zip(self, mapping_id: str, version: str, package_id: str,
                                      output_dir: Path) -> bool:
-        """
-        Download a single message mapping ZIP
-        
-        Args:
-            mapping_id: Message mapping ID
-            version: Message mapping version (from JSON, for logging only)
-            package_id: Package ID (for filename)
-            output_dir: Output directory
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        import requests
-        
-        # Always use 'Active' to get the latest/active version, regardless of JSON version
+        """Download a single message mapping ZIP (always uses Version='Active')."""
         logger.debug(f"Downloading Message Mapping {mapping_id} (JSON version: {version}, using 'Active')")
         url = f"{self.api_base_url}/MessageMappingDesigntimeArtifacts(Id='{mapping_id}',Version='Active')/$value"
         output_file = output_dir / f"{package_id}---{mapping_id}.zip"
-        
-        # Retry logic
+
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
-                # Use generic auth header (works with OAuth or Basic Auth)
                 headers = self.auth_client.get_auth_header()
-                
-                response = requests.get(url, headers=headers, timeout=self.timeout, stream=True)
-                
+                response = self._session.get(url, headers=headers, timeout=self.timeout, stream=True)
+
                 if response.status_code == 200:
-                    # Save ZIP file
                     with open(output_file, 'wb') as f:
                         for chunk in response.iter_content(chunk_size=8192):
                             f.write(chunk)
                     return True
-                
+
                 elif response.status_code in [401, 403, 404]:
                     logger.warning(f"  {response.status_code} error for message mapping {mapping_id}")
-                    
                     if attempt < max_retries:
                         time.sleep(2 ** attempt)
                         continue
                     else:
-                        # Track error only after all retries exhausted
                         self._track_error(package_id, mapping_id, version, "MESSAGE_MAPPING",
                                         response.status_code, f"HTTP_{response.status_code}",
                                         response.text, output_file)
                     return False
-                
+
                 else:
                     logger.error(f"  Unexpected status {response.status_code} for message mapping {mapping_id}")
                     self._track_error(package_id, mapping_id, version, "MESSAGE_MAPPING",
                                     response.status_code, f"HTTP_{response.status_code}",
                                     response.text, output_file)
                     return False
-                    
+
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                 if attempt < max_retries:
                     time.sleep(2 ** attempt)
@@ -703,114 +528,53 @@ class ArtifactZipDownloader:
                 self._track_error(package_id, mapping_id, version, "MESSAGE_MAPPING",
                                 None, "UNKNOWN_ERROR", str(e), output_file)
                 return False
-        
+
         return False
-    
-    def _download_package_value_mappings(self, package_id: str, 
+
+    def _download_package_value_mappings(self, package_id: str,
                                         value_mappings: List[Dict[str, Any]],
                                         output_dir: Path) -> Dict[str, Any]:
-        """
-        Download value mapping ZIPs for a single package (parallel)
-        
-        Args:
-            package_id: Package ID
-            value_mappings: List of value mapping dicts for this package
-            output_dir: Output directory (value-mappings/)
-            
-        Returns:
-            Dict with download stats
-        """
-        stats = {"attempted": 0, "downloaded": 0, "failed": 0}
-        
-        if not value_mappings:
-            return stats
-        
-        # Determine actual parallelism
-        actual_workers = min(self.parallel_downloads, len(value_mappings))
-        
-        # Download value mappings in parallel
-        with ThreadPoolExecutor(max_workers=actual_workers) as executor:
-            future_to_mapping = {
-                executor.submit(self._download_value_mapping_zip,
-                              vm.get('Id'), vm.get('Version'),
-                              package_id, output_dir): vm
-                for vm in value_mappings
-            }
-            
-            for future in as_completed(future_to_mapping):
-                mapping_info = future_to_mapping[future]
-                stats["attempted"] += 1
-                
-                try:
-                    success = future.result()
-                    if success:
-                        stats["downloaded"] += 1
-                        logger.info(f"    Downloaded: {package_id}---{mapping_info.get('Id')}.zip")
-                    else:
-                        stats["failed"] += 1
-                except Exception as e:
-                    stats["failed"] += 1
-                    logger.error(f"    Exception downloading value mapping {mapping_info.get('Id')}: {e}")
-        
-        return stats
-    
+        """Kept for backwards compatibility — delegates to _download_batch."""
+        tasks = [(vm.get('Id'), vm.get('Version'), package_id, output_dir) for vm in value_mappings]
+        return self._download_batch(tasks, self._download_value_mapping_zip, label="value mapping")
+
     def _download_value_mapping_zip(self, mapping_id: str, version: str, package_id: str,
                                    output_dir: Path) -> bool:
-        """
-        Download a single value mapping ZIP
-        
-        Args:
-            mapping_id: Value mapping ID
-            version: Value mapping version (from JSON, for logging only)
-            package_id: Package ID (for filename)
-            output_dir: Output directory
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        import requests
-        
-        # Always use 'Active' to get the latest/active version, regardless of JSON version
+        """Download a single value mapping ZIP (always uses Version='Active')."""
         logger.debug(f"Downloading Value Mapping {mapping_id} (JSON version: {version}, using 'Active')")
         url = f"{self.api_base_url}/ValueMappingDesigntimeArtifacts(Id='{mapping_id}',Version='Active')/$value"
         output_file = output_dir / f"{package_id}---{mapping_id}.zip"
-        
-        # Retry logic
+
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
-                # Use generic auth header (works with OAuth or Basic Auth)
                 headers = self.auth_client.get_auth_header()
-                
-                response = requests.get(url, headers=headers, timeout=self.timeout, stream=True)
-                
+                response = self._session.get(url, headers=headers, timeout=self.timeout, stream=True)
+
                 if response.status_code == 200:
-                    # Save ZIP file
                     with open(output_file, 'wb') as f:
                         for chunk in response.iter_content(chunk_size=8192):
                             f.write(chunk)
                     return True
-                
+
                 elif response.status_code in [401, 403, 404]:
                     logger.warning(f"  {response.status_code} error for value mapping {mapping_id}")
-                    
                     if attempt < max_retries:
                         time.sleep(2 ** attempt)
                         continue
                     else:
-                        # Track error only after all retries exhausted
                         self._track_error(package_id, mapping_id, version, "VALUE_MAPPING",
                                         response.status_code, f"HTTP_{response.status_code}",
                                         response.text, output_file)
                     return False
-                
+
                 else:
                     logger.error(f"  Unexpected status {response.status_code} for value mapping {mapping_id}")
                     self._track_error(package_id, mapping_id, version, "VALUE_MAPPING",
                                     response.status_code, f"HTTP_{response.status_code}",
                                     response.text, output_file)
                     return False
-                    
+
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                 if attempt < max_retries:
                     time.sleep(2 ** attempt)
@@ -823,7 +587,7 @@ class ArtifactZipDownloader:
                 self._track_error(package_id, mapping_id, version, "VALUE_MAPPING",
                                 None, "UNKNOWN_ERROR", str(e), output_file)
                 return False
-        
+
         return False
     
     def _track_error(self, package_id: str, iflow_id: Optional[str], version: Optional[str],
@@ -838,6 +602,8 @@ class ArtifactZipDownloader:
             "ErrorMessage": error_message[:500],  # Limit message length
             "Timestamp": datetime.now().isoformat(),
             "DownloadAttempted": str(attempted_path.relative_to(self.download_dir.parent))
+            if attempted_path.is_relative_to(self.download_dir.parent)
+            else str(attempted_path),
         }
 
         if iflow_id:

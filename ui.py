@@ -70,6 +70,14 @@ ENV_FILE = _BASE_DIR / ".env"
 ENV_EXAMPLE = _BASE_DIR / ".env.example"
 MAIN_SCRIPT = _BASE_DIR / "main.py"
 
+
+def _quote_env_value(value: str) -> str:
+    """Wrap a .env value in double quotes when needed to preserve spaces and # characters."""
+    if (value.startswith(' ') or value.endswith(' ') or '#' in value or
+            value.startswith('"') or value.startswith("'")):
+        return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    return value
+
 # ─── Field Definitions (data-driven)  ──────────────────────────────────────────
 # Supported types:  "entry" | "password" | "dropdown" | "checkbox" | "file_browse"
 # depends_on:       {key: required_value}  — widget is enabled only when that
@@ -698,7 +706,7 @@ class CIAnalyzerUI(ctk.CTk):
                     elif "=" in stripped:
                         k = stripped.split("=", 1)[0].strip()
                         if k in new_values:
-                            output_lines.append(f"{k}={new_values[k]}\n")
+                            output_lines.append(f"{k}={_quote_env_value(new_values[k])}\n")
                             written.add(k)
                         else:
                             output_lines.append(line)
@@ -708,7 +716,7 @@ class CIAnalyzerUI(ctk.CTk):
         # Append keys not present in the template
         for k, v in new_values.items():
             if k not in written:
-                output_lines.append(f"{k}={v}\n")
+                output_lines.append(f"{k}={_quote_env_value(v)}\n")
 
         try:
             with open(ENV_FILE, "w", encoding="utf-8") as fh:
@@ -735,6 +743,7 @@ class CIAnalyzerUI(ctk.CTk):
         self.tabview.set("▶  Run & Output")
         self._set_status("● Running…", color="#FFA040")
         self.stop_btn.configure(state="normal")
+        self._stop_requested = False
 
         if getattr(sys, "frozen", False):
             # Re-invoke the frozen binary with --run-analysis so it uses the
@@ -773,7 +782,7 @@ class CIAnalyzerUI(ctk.CTk):
             if rc == 0:
                 self._append_output("\n✅  Analysis completed successfully!\n")
                 self.after(0, lambda: self._set_status("● Completed", color="#44CC44"))
-            elif rc == 130:  # KeyboardInterrupt / SIGINT
+            elif rc == 130 or self._stop_requested:  # SIGINT or explicit stop (Windows exits 1)
                 self._append_output("\n⚠️  Stopped by user.\n")
                 self.after(0, lambda: self._set_status("● Stopped", color="#888888"))
             else:
@@ -788,6 +797,7 @@ class CIAnalyzerUI(ctk.CTk):
     def _stop_process(self):
         """Send SIGTERM to the running subprocess."""
         if self.process and self.process.poll() is None:
+            self._stop_requested = True
             self.process.terminate()
             self._set_status("● Stopping…", color="#AAAAAA")
 
@@ -818,8 +828,8 @@ class CIAnalyzerUI(ctk.CTk):
 
     @staticmethod
     def _browse_db_file(string_var: ctk.StringVar):
-        runs_dir = Path("runs")
-        initial = str(runs_dir.resolve()) if runs_dir.exists() else "."
+        runs_dir = _BASE_DIR / "runs"
+        initial = str(runs_dir.resolve()) if runs_dir.exists() else str(_BASE_DIR)
         path = filedialog.askopenfilename(
             title="Select SQLite Database",
             initialdir=initial,

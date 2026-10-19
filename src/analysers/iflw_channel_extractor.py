@@ -606,7 +606,7 @@ class IflwParticipantChannelResolver:
                         all_matched = False
                         break
                     
-                    actual_val = cond_prop.resolved_value or cond_prop.raw_value
+                    actual_val = cond_prop.resolved_value if cond_prop.resolved_value is not None else cond_prop.raw_value
                     if actual_val != cond_val:
                         all_matched = False
                         break
@@ -617,14 +617,14 @@ class IflwParticipantChannelResolver:
                 # All conditions matched, find target property
                 target_prop = next((p for p in props if p.key == target_key), None)
                 if target_prop:
-                    value = target_prop.resolved_value or target_prop.raw_value
+                    value = target_prop.resolved_value if target_prop.resolved_value is not None else target_prop.raw_value
                     if value is not None:  # Return even if empty string
                         return PromotedValue(key=target_key, value=value)
             else:
                 # Simple rule (no conditions)
                 prop = next((p for p in props if p.key == rule), None)
                 if prop:
-                    value = prop.resolved_value or prop.raw_value
+                    value = prop.resolved_value if prop.resolved_value is not None else prop.raw_value
                     if value is not None:  # Return even if empty string
                         return PromotedValue(key=rule, value=value)
         

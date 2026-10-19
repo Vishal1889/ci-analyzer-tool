@@ -280,7 +280,7 @@ class EnvironmentVariableScanner:
             # Extract HC_ variables
             hc_variables = self._extract_hc_variables(content_no_comments)
             
-            # Only return result if HC_ variables found
+            # Skip files with no HC_ variables — only rows with actual variables are saved
             if len(hc_variables) == 0:
                 logger.debug(f"Scanned {file_path.name}: No HC_ variables found")
                 return None

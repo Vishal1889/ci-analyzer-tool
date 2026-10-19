@@ -197,7 +197,8 @@ class DiscoverVersionChecker:
             
             # Delete the created package
             if created_package_id:
-                self._delete_package(created_package_id)
+                if not self._delete_package(created_package_id):
+                    logger.warning(f"  Could not delete temporary package {created_package_id} from Discover tenant — manual cleanup may be required")
             
             return version
             

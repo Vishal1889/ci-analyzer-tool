@@ -41,7 +41,7 @@ def sanitize_source_name(name: str, max_length: int = 80) -> str:
     # Truncate preserving extension + append short hash for uniqueness
     ext = Path(sanitized).suffix  # e.g., '.edmx'
     name_hash = hashlib.md5(name.encode()).hexdigest()[:6]
-    max_stem = max_length - len(ext) - 1 - len(name_hash)  # -1 for underscore
+    max_stem = max(0, max_length - len(ext) - 1 - len(name_hash))  # -1 for underscore; clamp ≥ 0
     stem = Path(sanitized).stem[:max_stem]
 
     return f"{stem}_{name_hash}{ext}"

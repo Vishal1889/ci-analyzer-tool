@@ -4,14 +4,38 @@ SAP BTP themed HTML report generator with compact design
 """
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
 import json
+import html
+
+
+def _esc(s) -> str:
+    """html.escape that treats None (SQLite NULL) as empty string."""
+    return html.escape(s if s is not None else '')
 
 
 class NeoToCFFormatter:
     """Generates SAP BTP themed HTML report for NEO to CF migration assessment"""
     
+    # CDN assets fetched at report-generation time for offline/air-gapped viewing
+    _CDN_CSS = [
+        'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css',
+        'https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css',
+        'https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css',
+    ]
+    _CDN_JS = [
+        'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js',
+        'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js',
+        'https://code.jquery.com/jquery-3.7.0.min.js',
+        'https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js',
+        'https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js',
+        'https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js',
+        'https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js',
+        'https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+    ]
+
     # SAP BTP Color Scheme (from Cloud Transport Management)
     COLORS = {
         'primary_blue': '#0A6ED1',
@@ -31,26 +55,65 @@ class NeoToCFFormatter:
         self.report_title = report_title
         self.tenant_id = tenant_id
         self.captured_at = captured_at
-    
+
+    def _load_inline_assets(self) -> Dict[str, str]:
+        """Pre-fetch all CDN assets concurrently for self-contained HTML.
+        Returns a url→content dict, or {} if any asset fails (falls back to CDN links)."""
+        from concurrent.futures import ThreadPoolExecutor
+        import urllib.request
+
+        all_urls = self._CDN_CSS + self._CDN_JS
+
+        def fetch(url: str):
+            try:
+                with urllib.request.urlopen(url, timeout=5) as resp:
+                    return url, resp.read().decode('utf-8', errors='replace')
+            except Exception:
+                return url, None
+
+        with ThreadPoolExecutor(max_workers=len(all_urls)) as executor:
+            results = list(executor.map(fetch, all_urls))
+
+        assets: Dict[str, str] = {}
+        for url, content in results:
+            if content is None:
+                return {}
+            assets[url] = content
+        return assets
+
     def generate_html(self, data: Dict[str, Any], output_file: Path):
         """Generate complete HTML report"""
-        
+        assets = self._load_inline_assets()
+
+        if assets:
+            # Escape closing tags so embedded content cannot break the enclosing block
+            def _safe_css(url): return assets[url].replace('</style>', r'<\/style>')
+            def _safe_js(url):  return assets[url].replace('</script>', r'<\/script>')
+
+            css_block = f"""    <style>
+{_safe_css('https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css')}
+{_safe_css('https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css')}
+{_safe_css('https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css')}
+    </style>"""
+        else:
+            css_block = """    <!-- Bootstrap 5.3 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- DataTables CSS -->
+    <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+
+    <!-- DataTables Buttons CSS -->
+    <link href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css" rel="stylesheet">"""
+
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{self.report_title} - {self.tenant_id}</title>
-    
-    <!-- Bootstrap 5.3 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    
-    <!-- DataTables CSS -->
-    <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
-    
-    <!-- DataTables Buttons CSS -->
-    <link href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css" rel="stylesheet">
-    
+
+{css_block}
+
     <style>
 {self._generate_css()}
     </style>
@@ -59,10 +122,10 @@ class NeoToCFFormatter:
     <div class="container-fluid">
         <!-- Header -->
 {self._generate_header(data)}
-        
+
         <!-- Navigation Tabs -->
 {self._generate_tabs()}
-        
+
         <!-- Tab Content -->
         <div class="tab-content" id="reportTabContent">
 {self._generate_tab_executive_summary(data)}
@@ -76,16 +139,16 @@ class NeoToCFFormatter:
 {self._generate_tab_download_errors(data)}
 {self._generate_tab_about(data)}
         </div>
-        
+
         <!-- Footer -->
 {self._generate_footer(data)}
     </div>
-    
+
     <!-- JavaScript -->
-{self._generate_javascript(data)}
+{self._generate_javascript(data, assets)}
 </body>
 </html>"""
-        
+
         # Write to file
         output_file.parent.mkdir(parents=True, exist_ok=True)
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -824,12 +887,6 @@ class NeoToCFFormatter:
                     </div>
                 </div>"""
 
-        # Store chart data for JS initialization
-        self._donut_data = {
-            'pkg': {'green': pkg_green, 'amber': pkg_amber, 'red': pkg_red},
-            'art': {'green': art_green, 'amber': art_amber, 'red': art_red},
-        }
-
         # Package Distribution Bar Chart
         package_dist = dashboard.get('package_distribution', [])
         top_packages = dashboard.get('top_packages', [])
@@ -971,13 +1028,13 @@ class NeoToCFFormatter:
 
             readiness = pkg.get('migration_readiness', 'Green')
             r_icon, r_sort = _readiness_icon.get(readiness, ('⚪', 0))
-            checks_json = json.dumps(pkg.get('readiness_checks', []), ensure_ascii=False).replace('"', '&quot;')
+            checks_json = _esc(json.dumps(pkg.get('readiness_checks', []), ensure_ascii=False))
             pkg_name = pkg.get('package_name', '')
-            pkg_name_escaped = pkg_name.replace('"', '&quot;')
+            pkg_name_escaped = _esc(pkg_name)
 
             html += f"""
                             <tr>
-                                <td>{pkg_name}</td>
+                                <td>{_esc(pkg_name)}</td>
                                 <td><span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:{pt_bg};color:{pt_color};">{pkg_type}</span></td>
                                 <td class="text-center" data-order="{r_sort}"><a href="#" class="readiness-badge" data-name="{pkg_name_escaped}" data-checks="{checks_json}" style="text-decoration:none;font-size:16px;cursor:pointer;">{r_icon}</a></td>
                                 <td class="text-center">{pkg.get('iflow_count', 0)}</td>
@@ -1050,7 +1107,7 @@ class NeoToCFFormatter:
             
             html += f"""
                             <tr>
-                                <td>{comp.get('package_name', 'Unknown')}</td>
+                                <td>{_esc(comp.get('package_name', 'Unknown'))}</td>
                                 <td class="text-center">{comp.get('design_version', 'N/A')}</td>
                                 <td class="text-center">{comp.get('discover_version', 'N/A')}</td>
                                 <td class="text-center"><span class="status-badge {status_class}">{status}</span></td>
@@ -1150,15 +1207,15 @@ class NeoToCFFormatter:
         for dep in deployments:
             readiness = dep.get('migration_readiness', 'Green')
             r_icon, r_sort = _readiness_icon.get(readiness, ('⚪', 0))
-            checks_json = json.dumps(dep.get('readiness_checks', []), ensure_ascii=False).replace('"', '&quot;')
+            checks_json = _esc(json.dumps(dep.get('readiness_checks', []), ensure_ascii=False))
             art_name = dep.get('artifact_name', 'Unknown')
-            art_name_escaped = art_name.replace('"', '&quot;')
+            art_name_escaped = _esc(art_name)
 
             html += f"""
                             <tr>
-                                <td>{art_name}</td>
-                                <td>{dep.get('artifact_type', 'Unknown')}</td>
-                                <td>{dep.get('package_name', 'Unknown')}</td>
+                                <td>{_esc(art_name)}</td>
+                                <td>{_esc(dep.get('artifact_type', 'Unknown'))}</td>
+                                <td>{_esc(dep.get('package_name', 'Unknown'))}</td>
                                 <td class="text-center" data-order="{r_sort}"><a href="#" class="readiness-badge" data-name="{art_name_escaped}" data-checks="{checks_json}" style="text-decoration:none;font-size:16px;cursor:pointer;">{r_icon}</a></td>
                                 <td class="text-center">{dep.get('design_version', 'N/A')}</td>
                                 <td class="text-center">{dep.get('runtime_version') or 'Not Deployed'}</td>
@@ -1251,10 +1308,10 @@ class NeoToCFFormatter:
             
             html += f"""
                             <tr>
-                                <td>{system_name}</td>
-                                <td>{sys.get('address_url', 'N/A')}</td>
-                                <td>{sys.get('adapter_type', 'Unknown')}</td>
-                                <td>{sys.get('direction', 'Unknown')}</td>
+                                <td>{_esc(system_name)}</td>
+                                <td>{_esc(sys.get('address_url', 'N/A'))}</td>
+                                <td>{_esc(sys.get('adapter_type', 'Unknown'))}</td>
+                                <td>{_esc(sys.get('direction', 'Unknown'))}</td>
                                 <td class="text-center">{count_cell}</td>
                             </tr>"""
         
@@ -1297,7 +1354,7 @@ class NeoToCFFormatter:
 
             html += f"""
                             <tr>
-                                <td>{at}</td>
+                                <td>{_esc(at)}</td>
                                 <td class="text-center">{sender_cell}</td>
                                 <td class="text-center">{receiver_cell}</td>
                                 <td class="text-center"><strong>{adapter.get('total_count', 0)}</strong></td>
@@ -1352,7 +1409,7 @@ class NeoToCFFormatter:
         if not env_vars_data.get('available', False):
             return """            <div class="tab-pane fade" id="envvars" role="tabpanel">
                 <div class="alert-box alert-info">
-                    <strong>Note:</strong> Environment variable data is not available. This feature requires PARSE_IFLW_CONTENT=true and EXTRACT_IFLOW_CONTENT=true in configuration.
+                    <strong>Note:</strong> Environment variable data is not available for this database. Re-run the analysis in FULL mode to generate this data.
                 </div>
             </div>"""
         
@@ -1442,13 +1499,13 @@ class NeoToCFFormatter:
             
             html += f"""
                             <tr>
-                                <td><code>{var.get('file_name', 'Unknown')}</code></td>
+                                <td><code>{_esc(var.get('file_name', 'Unknown'))}</code></td>
                                 <td>{ft_badge}</td>
                                 <td class="text-center"><strong>{var.get('var_count', 0)}</strong></td>
-                                <td><code>{var_list}</code></td>
-                                <td>{parent_type_display}</td>
-                                <td>{var.get('parent_name', 'Unknown')}</td>
-                                <td>{var.get('package_name', 'Unknown')}</td>
+                                <td><code>{_esc(var_list)}</code></td>
+                                <td>{_esc(parent_type_display)}</td>
+                                <td>{_esc(var.get('parent_name', 'Unknown'))}</td>
+                                <td>{_esc(var.get('package_name', 'Unknown'))}</td>
                             </tr>"""
         
         html += """
@@ -1540,9 +1597,9 @@ class NeoToCFFormatter:
             
             html += f"""
                             <tr>
-                                <td title="{mapping.get('IssuedTo', '')}">{subject_cn}</td>
-                                <td title="{mapping.get('IssuedBy', '')}">{issuer_cn}</td>
-                                <td>{mapping.get('User', 'Unknown')}</td>
+                                <td title="{_esc(mapping.get('IssuedTo', ''))}">{_esc(subject_cn)}</td>
+                                <td title="{_esc(mapping.get('IssuedBy', ''))}">{_esc(issuer_cn)}</td>
+                                <td>{_esc(mapping.get('User', 'Unknown'))}</td>
                                 <td class="text-center">{valid_from}</td>
                                 <td class="text-center">{valid_to}</td>
                                 <td class="text-center"><span class="status-badge {status_class}">{status}</span></td>
@@ -1626,10 +1683,10 @@ class NeoToCFFormatter:
             
             html += f"""
                             <tr>
-                                <td>{entry.get('Alias', 'Unknown')}</td>
-                                <td>{entry.get('Type', 'Unknown')}</td>
-                                <td title="{entry.get('SubjectDN', '')}">{subject_cn}</td>
-                                <td title="{entry.get('IssuerDN', '')}">{issuer_cn}</td>
+                                <td>{_esc(entry.get('Alias', 'Unknown'))}</td>
+                                <td>{_esc(entry.get('Type', 'Unknown'))}</td>
+                                <td title="{_esc(entry.get('SubjectDN', ''))}">{_esc(subject_cn)}</td>
+                                <td title="{_esc(entry.get('IssuerDN', ''))}">{_esc(issuer_cn)}</td>
                                 <td class="text-center">{entry.get('valid_from_formatted', 'N/A')}</td>
                                 <td class="text-center">{entry.get('valid_until_formatted', 'N/A')}</td>
                                 <td class="text-center">{entry.get('KeyType', 'N/A')}</td>
@@ -1716,11 +1773,11 @@ class NeoToCFFormatter:
 
             html += f"""
                             <tr>
-                                <td>{err.get('package_id', 'Unknown')}</td>
-                                <td>{err.get('artifact_type', '').replace('_', ' ').title()}</td>
+                                <td>{_esc(err.get('package_id', 'Unknown'))}</td>
+                                <td>{_esc(err.get('artifact_type', '').replace('_', ' ').title())}</td>
                                 <td class="text-center"><span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;background:{ec_bg};color:{ec_color};">{code}</span></td>
-                                <td>{err.get('error_type', '').replace('_', ' ').title()}</td>
-                                <td>{err.get('error_message', '')}</td>
+                                <td>{_esc(err.get('error_type', '').replace('_', ' ').title())}</td>
+                                <td>{_esc(err.get('error_message', ''))}</td>
                                 <td style="color:#5E696E;">{ts}</td>
                             </tr>"""
 
@@ -1942,30 +1999,55 @@ class NeoToCFFormatter:
 
         <button class="back-to-top" id="backToTop" onclick="window.scrollTo({{top:0,behavior:'smooth'}})">↑</button>"""
     
-    def _generate_javascript(self, data: Dict[str, Any]) -> str:
+    def _generate_javascript(self, data: Dict[str, Any], assets: Optional[Dict[str, str]] = None) -> str:
         """Generate JavaScript for DataTables with column filters and export buttons"""
-        # Sanitise tenant_id for safe embedding in a JS double-quoted string
-        tenant_safe = self.tenant_id.replace('\\', '\\\\').replace('"', '\\"')
-        
-        js = """    <!-- Bootstrap JS -->
+        # Sanitise tenant_id for safe embedding in a JS double-quoted string (B27: also escape newlines)
+        tenant_safe = (self.tenant_id
+                       .replace('\\', '\\\\')
+                       .replace('"', '\\"')
+                       .replace('\n', '\\n')
+                       .replace('\r', '\\r'))
+
+        if assets:
+            js_libs = f"""    <script>
+/* Bootstrap 5.3 */
+{_safe_js('https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js')}
+/* Chart.js */
+{_safe_js('https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js')}
+/* jQuery */
+{_safe_js('https://code.jquery.com/jquery-3.7.0.min.js')}
+/* DataTables */
+{_safe_js('https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js')}
+{_safe_js('https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js')}
+/* DataTables Buttons */
+{_safe_js('https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js')}
+{_safe_js('https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js')}
+{_safe_js('https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js')}
+/* JSZip */
+{_safe_js('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js')}
+    </script>"""
+        else:
+            js_libs = """    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    
+
     <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    
+
     <!-- DataTables JS -->
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
-    
+
     <!-- DataTables Buttons -->
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>"""
+
+        js = js_libs + """
+
     <script>
         var _tenantId = "__TENANT_ID__";
         var _extractionDate = "__EXTRACTION_DATE__";
@@ -2066,7 +2148,7 @@ class NeoToCFFormatter:
                 var system  = $(this).data('system');
                 var address = $(this).data('address') || '';
                 var iflowsRaw = $(this).data('iflows');
-                var entries = String(iflowsRaw).split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+                var entries = String(iflowsRaw).split('\u001f').filter(Boolean);
                 // Modal title: system name + address URL (middle-dot separator)
                 var titleText = system + (address && address !== 'N/A' ? ' \u00b7 ' + address : '');
                 $('#modalSystemName').text(titleText);
@@ -2242,16 +2324,23 @@ class NeoToCFFormatter:
         # Extract date portion from captured_at for CSV filenames (YYYYMMDD_HHMMSS)
         extraction_date = self.captured_at[:10].replace('-', '') if self.captured_at else ''
 
-        # Inject donut chart data
-        donut = getattr(self, '_donut_data', {'pkg': {'green': 0, 'amber': 0, 'red': 0}, 'art': {'green': 0, 'amber': 0, 'red': 0}})
+        # Compute donut chart data directly from the report data (B26: no side-effect attribute)
+        packages_list = data.get('packages', {}).get('packages', [])
+        pkg_green = sum(1 for p in packages_list if p.get('migration_readiness') == 'Green')
+        pkg_amber = sum(1 for p in packages_list if p.get('migration_readiness') == 'Amber')
+        pkg_red   = sum(1 for p in packages_list if p.get('migration_readiness') == 'Red')
+        art_readiness = data.get('dashboard', {}).get('artifact_readiness', {})
+        art_green = art_readiness.get('green', 0)
+        art_amber = art_readiness.get('amber', 0)
+        art_red   = art_readiness.get('red', 0)
 
         return (js
             .replace('__TENANT_ID__', tenant_safe)
             .replace('__EXTRACTION_DATE__', extraction_date)
-            .replace('__PKG_GREEN__', str(donut['pkg']['green']))
-            .replace('__PKG_AMBER__', str(donut['pkg']['amber']))
-            .replace('__PKG_RED__', str(donut['pkg']['red']))
-            .replace('__ART_GREEN__', str(donut['art']['green']))
-            .replace('__ART_AMBER__', str(donut['art']['amber']))
-            .replace('__ART_RED__', str(donut['art']['red']))
+            .replace('__PKG_GREEN__', str(pkg_green))
+            .replace('__PKG_AMBER__', str(pkg_amber))
+            .replace('__PKG_RED__', str(pkg_red))
+            .replace('__ART_GREEN__', str(art_green))
+            .replace('__ART_AMBER__', str(art_amber))
+            .replace('__ART_RED__', str(art_red))
         )

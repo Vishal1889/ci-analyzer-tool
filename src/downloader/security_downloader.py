@@ -297,14 +297,22 @@ class CertificateUserMappingsDownloader(SecurityDownloader):
                 cert = x509.load_der_x509_certificate(cert_bytes, default_backend())
                 logger.debug("Successfully parsed certificate")
                 
+                # not_valid_before_utc / not_valid_after_utc added in cryptography 42.0
+                try:
+                    valid_from = cert.not_valid_before_utc.isoformat()
+                    valid_to = cert.not_valid_after_utc.isoformat()
+                except AttributeError:
+                    valid_from = cert.not_valid_before.isoformat()
+                    valid_to = cert.not_valid_after.isoformat()
+
                 return {
                     'SerialNumber': str(cert.serial_number),
                     'IssuedTo': cert.subject.rfc4514_string(),
                     'IssuedBy': cert.issuer.rfc4514_string(),
-                    'ValidFrom': cert.not_valid_before_utc.isoformat(),
-                    'ValidTo': cert.not_valid_after_utc.isoformat()
+                    'ValidFrom': valid_from,
+                    'ValidTo': valid_to
                 }
-                    
+
             except UnicodeDecodeError:
                 # Not a UTF-8 string, so it's already binary DER data after first decode
                 # This shouldn't happen based on user's algorithm, but handle it anyway
@@ -312,14 +320,21 @@ class CertificateUserMappingsDownloader(SecurityDownloader):
                 cert = x509.load_der_x509_certificate(first_decode_bytes, default_backend())
                 logger.debug("Successfully parsed certificate from binary")
             
+            try:
+                valid_from = cert.not_valid_before_utc.isoformat()
+                valid_to = cert.not_valid_after_utc.isoformat()
+            except AttributeError:
+                valid_from = cert.not_valid_before.isoformat()
+                valid_to = cert.not_valid_after.isoformat()
+
             return {
                 'SerialNumber': str(cert.serial_number),
                 'IssuedTo': cert.subject.rfc4514_string(),
                 'IssuedBy': cert.issuer.rfc4514_string(),
-                'ValidFrom': cert.not_valid_before_utc.isoformat(),
-                'ValidTo': cert.not_valid_after_utc.isoformat()
+                'ValidFrom': valid_from,
+                'ValidTo': valid_to
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to parse certificate: {e}")
             return {

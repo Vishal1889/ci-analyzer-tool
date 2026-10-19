@@ -360,10 +360,10 @@ class NeoToCFMigrationReport(BaseReport):
             p.Name as package_name,
             p.Mode as mode,
             COUNT(DISTINCT i.Id) as iflow_count,
-            COUNT(DISTINCT sc.Name) as script_count,
+            COUNT(DISTINCT sc.Id) as script_count,
             COUNT(DISTINCT mm.Id) as msg_map_count,
             COUNT(DISTINCT vm.Id) as val_map_count,
-            (COUNT(DISTINCT i.Id) + COUNT(DISTINCT sc.Name) +
+            (COUNT(DISTINCT i.Id) + COUNT(DISTINCT sc.Id) +
              COUNT(DISTINCT mm.Id) + COUNT(DISTINCT vm.Id)) as total_artifacts
         FROM package p
         LEFT JOIN iflow i ON p.Id = i.PackageId AND p.tenant_id = i.tenant_id
@@ -380,7 +380,7 @@ class NeoToCFMigrationReport(BaseReport):
         # Artifact readiness counts for donut chart (same logic as deployment query)
         artifact_readiness = {'green': 0, 'amber': 0, 'red': 0}
         try:
-            ar_rows = self.execute_query("""
+            ar_rows = self.execute_query(f"""
                 SELECT readiness, COUNT(*) as cnt FROM (
                     SELECT CASE
                         WHEN evc.parentName IS NOT NULL THEN 'red'
@@ -388,8 +388,7 @@ class NeoToCFMigrationReport(BaseReport):
                         ELSE 'green'
                     END as readiness
                     FROM iflow i LEFT JOIN (
-                        SELECT DISTINCT parentName FROM environment_variable_check
-                        WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                        {self._evc_pname_subq}
                     ) evc ON i.Id = evc.parentName WHERE i.tenant_id = ?
                     UNION ALL
                     SELECT CASE
@@ -397,12 +396,11 @@ class NeoToCFMigrationReport(BaseReport):
                         WHEN sc.Version = 'Active' THEN 'amber'
                         ELSE 'green'
                     END FROM script_collection sc LEFT JOIN (
-                        SELECT DISTINCT parentName FROM environment_variable_check
-                        WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                        {self._evc_pname_subq}
                     ) evc ON sc.Id = evc.parentName WHERE sc.tenant_id = ?
                     UNION ALL
                     SELECT CASE WHEN mm.Version = 'Active' THEN 'amber' ELSE 'green' END
-                    FROM message_mapping mm WHERE mm.tenant_id = ?
+                    FROM {self._mm_source} mm WHERE mm.tenant_id = ?
                     UNION ALL
                     SELECT CASE WHEN vm.Version = 'Active' THEN 'amber' ELSE 'green' END
                     FROM value_mapping vm WHERE vm.tenant_id = ?
@@ -416,10 +414,10 @@ class NeoToCFMigrationReport(BaseReport):
         
         return {
             'kpis': {
-                'total_packages': pkg_data.get('total_packages', 0),
-                'custom_packages': pkg_data.get('custom_packages', 0),
-                'standard_readonly': pkg_data.get('standard_readonly', 0),
-                'standard_editable': pkg_data.get('standard_editable', 0),
+                'total_packages': pkg_data.get('total_packages') or 0,
+                'custom_packages': pkg_data.get('custom_packages') or 0,
+                'standard_readonly': pkg_data.get('standard_readonly') or 0,
+                'standard_editable': pkg_data.get('standard_editable') or 0,
                 'total_iflows': iflow_count,
                 'total_scripts': script_count,
                 'total_msg_maps': msg_map_count,
@@ -466,7 +464,7 @@ class NeoToCFMigrationReport(BaseReport):
             logger.info("  Discover version data not available")
             # Fallback: Get package list without Discover versions
             fallback_query = """
-            SELECT 
+            SELECT
                 p.Id as package_id,
                 p.Name as package_name,
                 p.Vendor as vendor,
@@ -476,8 +474,6 @@ class NeoToCFMigrationReport(BaseReport):
                 p.ModifiedDate as last_modified
             FROM package p
             WHERE p.tenant_id = ?
-            AND p.Vendor IS NOT NULL 
-            AND p.Vendor != ''
             ORDER BY p.Name
             """
             comparison_data = self.execute_query(fallback_query, (self.tenant_id,))
@@ -516,10 +512,10 @@ class NeoToCFMigrationReport(BaseReport):
                 ELSE 'Custom'
             END as package_type,
             COUNT(DISTINCT i.Id) as iflow_count,
-            COUNT(DISTINCT sc.Name) as script_count,
+            COUNT(DISTINCT sc.Id) as script_count,
             COUNT(DISTINCT mm.Id) as msg_map_count,
             COUNT(DISTINCT vm.Id) as val_map_count,
-            (COUNT(DISTINCT i.Id) + COUNT(DISTINCT sc.Name) +
+            (COUNT(DISTINCT i.Id) + COUNT(DISTINCT sc.Id) +
              COUNT(DISTINCT mm.Id) + COUNT(DISTINCT vm.Id)) as total_artifacts
         FROM package p
         LEFT JOIN iflow i ON p.Id = i.PackageId AND p.tenant_id = i.tenant_id
@@ -632,22 +628,20 @@ class NeoToCFMigrationReport(BaseReport):
             logger.debug("  package_discover_version table not available — skipping discover check")
 
         # 3. Get artifact-level details for popover: HC_ var artifacts and draft artifacts per package
-        hc_artifacts_by_pkg = {}  # package_id -> [{'name': ..., 'type': ...}, ...]
+        hc_artifacts_by_pkg = {}
         try:
-            hc_art_rows = self.execute_query("""
+            hc_art_rows = self.execute_query(f"""
                 SELECT i.PackageId, i.Name as artifact_name, 'Integration Flow' as artifact_type
                 FROM iflow i
                 INNER JOIN (
-                    SELECT DISTINCT parentName FROM environment_variable_check
-                    WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                    {self._evc_pname_subq}
                 ) evc ON i.Id = evc.parentName
                 WHERE i.tenant_id = ?
                 UNION ALL
                 SELECT sc.PackageId, sc.Name, 'Script Collection'
                 FROM script_collection sc
                 INNER JOIN (
-                    SELECT DISTINCT parentName FROM environment_variable_check
-                    WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                    {self._evc_pname_subq}
                 ) evc ON sc.Id = evc.parentName
                 WHERE sc.tenant_id = ?
             """, (self.tenant_id, self.tenant_id, self.tenant_id, self.tenant_id))
@@ -656,9 +650,9 @@ class NeoToCFMigrationReport(BaseReport):
         except Exception:
             pass
 
-        draft_artifacts_by_pkg = {}  # package_id -> [{'name': ..., 'type': ...}, ...]
+        draft_artifacts_by_pkg = {}
         try:
-            draft_rows = self.execute_query("""
+            draft_rows = self.execute_query(f"""
                 SELECT PackageId, Name as artifact_name, 'Integration Flow' as artifact_type
                 FROM iflow WHERE tenant_id = ? AND Version = 'Active'
                 UNION ALL
@@ -666,7 +660,7 @@ class NeoToCFMigrationReport(BaseReport):
                 FROM script_collection WHERE tenant_id = ? AND Version = 'Active'
                 UNION ALL
                 SELECT PackageId, Name, 'Message Mapping'
-                FROM message_mapping WHERE tenant_id = ? AND Version = 'Active'
+                FROM {self._mm_source} WHERE tenant_id = ? AND Version = 'Active'
                 UNION ALL
                 SELECT PackageId, Name, 'Value Mapping'
                 FROM value_mapping WHERE tenant_id = ? AND Version = 'Active'
@@ -772,7 +766,14 @@ class NeoToCFMigrationReport(BaseReport):
             p.Version as current_version,
             p.ModifiedDate as last_modified,
             'N/A' as latest_version,
-            CASE 
+            CASE
+                WHEN p.ModifiedDate IS NULL OR p.ModifiedDate = '' THEN 'Unknown'
+                WHEN p.ModifiedDate LIKE '/Date(%' THEN
+                    CASE
+                        WHEN CAST(SUBSTR(p.ModifiedDate, 7, LENGTH(p.ModifiedDate) - 8) AS INTEGER) / 1000
+                             < CAST(strftime('%s', date('now', '-180 days')) AS INTEGER)
+                        THEN 'Outdated' ELSE 'Current'
+                    END
                 WHEN p.ModifiedDate < date('now', '-180 days') THEN 'Outdated'
                 ELSE 'Current'
             END as version_status
@@ -909,20 +910,21 @@ class NeoToCFMigrationReport(BaseReport):
         # Enrich with structured readiness_checks for popover display.
         # Load HC_ env variable file details for Red artifacts.
         hc_files_by_parent = {}
-        try:
-            hc_rows = self.execute_query(
-                """SELECT parentName, fileName, fileType,
-                          CAST(envVariableCount AS INTEGER) as var_count,
-                          envVariableList as variables
-                   FROM environment_variable_check
-                   WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
-                   ORDER BY parentName, fileName""",
-                (self.tenant_id,),
-            )
-            for row in hc_rows:
-                hc_files_by_parent.setdefault(row['parentName'], []).append(row)
-        except Exception:
-            logger.debug("  environment_variable_check table not available — skipping HC_ file details")
+        if self._evc_has_schema:
+            try:
+                hc_rows = self.execute_query(
+                    """SELECT parentName, fileName, fileType,
+                              CAST(envVariableCount AS INTEGER) as var_count,
+                              envVariableList as variables
+                       FROM environment_variable_check
+                       WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
+                       ORDER BY parentName, fileName""",
+                    (self.tenant_id,),
+                )
+                for row in hc_rows:
+                    hc_files_by_parent.setdefault(row['parentName'], []).append(row)
+            except Exception:
+                logger.debug("  environment_variable_check table not available — skipping HC_ file details")
 
         for dep in iflow_deployments:
             checks = []
@@ -997,7 +999,7 @@ class NeoToCFMigrationReport(BaseReport):
             bc.componentType as adapter_type,
             REPLACE(REPLACE(bc.type, 'Endpoint', ''), 'endpoint', '') as direction,
             COUNT(DISTINCT bc.iflowId) as iflow_count,
-            GROUP_CONCAT(DISTINCT COALESCE(i.Name, bc.iflowId) || '|||' || COALESCE(p.Name, 'Unknown Package')) as iflow_names
+            GROUP_CONCAT(COALESCE(i.Name, bc.iflowId) || '|||' || COALESCE(p.Name, 'Unknown Package'), char(31)) as iflow_names
         FROM iflw_channel bc
         LEFT JOIN iflow i ON bc.iflowId = i.Id AND bc.tenant_id = i.tenant_id
         LEFT JOIN package p ON i.PackageId = p.Id AND i.tenant_id = p.tenant_id
@@ -1009,6 +1011,18 @@ class NeoToCFMigrationReport(BaseReport):
         ORDER BY iflow_count DESC, system_name
         """
         systems = self.execute_query(systems_query, (self.tenant_id,))
+        # Deduplicate iflow_names entries (GROUP_CONCAT without DISTINCT can produce duplicates
+        # when an iflow has multiple channels to the same system/address/adapter/direction)
+        for sys_row in systems:
+            raw = sys_row.get('iflow_names') or ''
+            if raw:
+                seen: set = set()
+                deduped = []
+                for entry in raw.split('\x1f'):
+                    if entry and entry not in seen:
+                        seen.add(entry)
+                        deduped.append(entry)
+                sys_row['iflow_names'] = '\x1f'.join(deduped)
         
         # Adapter type distribution using correct column names
         adapter_query = """
@@ -1055,8 +1069,8 @@ class NeoToCFMigrationReport(BaseReport):
             for adapter in adapters:
                 at = adapter['adapter_type']
                 info = adapter_iflows.get(at, {'sender': [], 'receiver': []})
-                adapter['sender_iflows'] = ','.join(info['sender'])
-                adapter['receiver_iflows'] = ','.join(info['receiver'])
+                adapter['sender_iflows'] = '\x1f'.join(info['sender'])
+                adapter['receiver_iflows'] = '\x1f'.join(info['receiver'])
         except Exception:
             for adapter in adapters:
                 adapter['sender_iflows'] = ''
@@ -1116,26 +1130,36 @@ class NeoToCFMigrationReport(BaseReport):
                 'available': False
             }
         
-        # Get file-level details — JOIN package/iflow/script_collection for human-readable names
-        variables_query = """
-        SELECT 
+        # Detect optional columns added in newer scanner versions (absent in v28 and earlier dbs)
+        _has_parent_type = self._check_column_exists('environment_variable_check', 'parentType')
+        _has_package_id  = self._check_column_exists('environment_variable_check', 'packageId')
+
+        parent_type_expr = "evc.parentType as parent_type" if _has_parent_type else "NULL as parent_type"
+        pkg_name_expr    = "COALESCE(p.Name, evc.packageId)" if _has_package_id else "p.Name"
+        pkg_join         = ("LEFT JOIN package p ON evc.packageId = p.Id AND evc.tenant_id = p.tenant_id"
+                            if _has_package_id else "LEFT JOIN package p ON 1=0")
+
+        # Get file-level details — only rows that actually have HC_ variables
+        variables_query = f"""
+        SELECT
             evc.fileName as file_name,
             evc.fileType as file_type,
             evc.envVariableCount as var_count,
             evc.envVariableList as variables,
             COALESCE(i.Name, sc.Name, evc.parentName) as parent_name,
-            evc.parentType as parent_type,
-            COALESCE(p.Name, evc.packageId) as package_name
+            {parent_type_expr},
+            COALESCE({pkg_name_expr}, evc.parentName) as package_name
         FROM environment_variable_check evc
-        LEFT JOIN package p ON evc.packageId = p.Id AND evc.tenant_id = p.tenant_id
+        {pkg_join}
         LEFT JOIN iflow i ON evc.parentName = i.Id AND evc.tenant_id = i.tenant_id
         LEFT JOIN script_collection sc ON evc.parentName = sc.Id AND evc.tenant_id = sc.tenant_id
         WHERE evc.tenant_id = ?
+          AND CAST(evc.envVariableCount AS INTEGER) > 0
         ORDER BY COALESCE(i.Name, sc.Name, evc.parentName), evc.fileName
         """
         variables = self.execute_query(variables_query, (self.tenant_id,))
-        
-        # Get statistics - count unique variables (not files)
+
+        # Count unique variable names across files that have HC_ variables
         unique_vars_query = """
         SELECT COUNT(DISTINCT envVariableList) as unique_vars
         FROM (
@@ -1143,42 +1167,47 @@ class NeoToCFMigrationReport(BaseReport):
             FROM environment_variable_check,
             json_each('["' || REPLACE(envVariableList, '|', '","') || '"]')
             WHERE tenant_id = ?
+              AND CAST(envVariableCount AS INTEGER) > 0
         )
         """
         unique_vars_count = self.execute_scalar(unique_vars_query, (self.tenant_id,)) or 0
-        
-        # Total files using variables
+
+        # Total files that use HC_ variables
         total_files = self.execute_scalar(
-            "SELECT COUNT(*) FROM environment_variable_check WHERE tenant_id = ?",
+            "SELECT COUNT(*) FROM environment_variable_check WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0",
             (self.tenant_id,)
         ) or 0
-        
-        # Breakdown by file type
+
+        # Breakdown by file type (only files with variables)
         file_type_query = """
         SELECT fileType, COUNT(*) as count
         FROM environment_variable_check
         WHERE tenant_id = ?
+          AND CAST(envVariableCount AS INTEGER) > 0
         GROUP BY fileType
         """
         file_types = self.execute_query(file_type_query, (self.tenant_id,))
         by_file_type = {ft['fileType']: ft['count'] for ft in file_types}
-        
-        # Breakdown by parent type
-        parent_type_query = """
-        SELECT parentType, COUNT(*) as count
-        FROM environment_variable_check
-        WHERE tenant_id = ?
-        GROUP BY parentType
-        """
-        parent_types = self.execute_query(parent_type_query, (self.tenant_id,))
-        by_parent_type = {pt['parentType']: pt['count'] for pt in parent_types}
+
+        # Breakdown by parent type (column absent in older dbs — skip gracefully)
+        by_parent_type = {}
+        if _has_parent_type:
+            parent_type_query = """
+            SELECT parentType, COUNT(*) as count
+            FROM environment_variable_check
+            WHERE tenant_id = ?
+              AND CAST(envVariableCount AS INTEGER) > 0
+            GROUP BY parentType
+            """
+            parent_types = self.execute_query(parent_type_query, (self.tenant_id,))
+            by_parent_type = {pt['parentType']: pt['count'] for pt in parent_types}
         
         logger.info(f"  Found {unique_vars_count} unique environment variables in {total_files} files")
         
         return {
             'variables': variables,
             'stats': {
-                'total_variables': len(variables),
+                'total_variables': unique_vars_count,
                 'total_files': total_files,
                 'by_file_type': by_file_type,
                 'by_parent_type': by_parent_type
@@ -1240,15 +1269,15 @@ class NeoToCFMigrationReport(BaseReport):
             unique_users.add(mapping['User'])
             
             # Parse ValidTo date (format: 2024-12-18T09:54:08+00:00)
+            valid_to_str = mapping.get('ValidTo')
+            if not valid_to_str:
+                mapping['status'] = 'Unknown'
+                mapping['days_until_expiry'] = None
+                continue
             try:
-                valid_to_str = mapping['ValidTo']
-                # Remove timezone for simple parsing
-                if '+' in valid_to_str:
-                    valid_to_str = valid_to_str.split('+')[0]
-                elif 'Z' in valid_to_str:
-                    valid_to_str = valid_to_str.replace('Z', '')
-                
                 valid_to = datetime.fromisoformat(valid_to_str)
+                if valid_to.tzinfo is not None:
+                    valid_to = valid_to.astimezone().replace(tzinfo=None)  # convert to local time before stripping
                 
                 if valid_to < now:
                     mapping['status'] = 'Expired'

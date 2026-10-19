@@ -115,6 +115,7 @@ def main():
         from parsers.value_mapping_parser import ValueMappingParser
         from parsers.script_collection_parser import ScriptCollectionParser
         import json
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         
         # Configuration already loaded and validated above
         print(f"[INFO] Tenant: {config.tenant_id}")
@@ -177,7 +178,7 @@ def main():
                 
                 # Generate each report
                 reports_generated = []
-                captured_at = datetime.now().isoformat()
+                captured_at = datetime.now().astimezone().isoformat()
                 
                 # NEO to CF Migration Assessment (HTML only, no JSON)
                 if config.report_neo_to_cf:
@@ -207,14 +208,11 @@ def main():
                     logger.warning("No reports were generated — check Report Selection in configuration")
                 logger.info("=" * 70)
                 logger.info("")
-                logger.info("Note: HTML/Excel output formatting not yet implemented")
-                logger.info("Report data has been generated and validated from database")
-                logger.info("=" * 70)
-                
+
             except Exception as e:
                 logger.error(f"Report generation failed: {e}")
                 raise
-            
+
         elif config.execution_mode == "FULL":
             # Setup authentication (only needed for FULL mode — REPORT_ONLY reads from DB)
             logger.info("=" * 70)
@@ -423,86 +421,51 @@ def main():
                 download_results['script_collections'] = downloader.download()
                 logger.info(f"Downloaded {download_results['script_collections']['count']} script collections")
         
-            # Download Security & Runtime APIs (independent, no dependencies)
+            # Download Security & Runtime APIs (independent — run concurrently)
             if args.api == 'security' or not args.api:
                 logger.info("")
                 logger.info("Downloading Security & Runtime Data...")
                 logger.info("-" * 70)
-                
-                # User Credentials
-                logger.info("Downloading User Credentials...")
-                downloader = UserCredentialsDownloader(
-                    auth_client,
-                    config.api_base_url,
-                    Path(download_path),
-                    config.api_timeout,
-                    timestamp=run_timestamp
-                )
-                download_results['user_credentials'] = downloader.download()
-                logger.info(f"Downloaded {download_results['user_credentials']['count']} user credentials")
-                
-                # OAuth2 Client Credentials
-                logger.info("Downloading OAuth2 Client Credentials...")
-                downloader = OAuth2ClientCredentialsDownloader(
-                    auth_client,
-                    config.api_base_url,
-                    Path(download_path),
-                    config.api_timeout,
-                    timestamp=run_timestamp
-                )
-                download_results['oauth2_credentials'] = downloader.download()
-                logger.info(f"Downloaded {download_results['oauth2_credentials']['count']} OAuth2 client credentials")
-                
-                # Secure Parameters
-                logger.info("Downloading Secure Parameters...")
-                downloader = SecureParametersDownloader(
-                    auth_client,
-                    config.api_base_url,
-                    Path(download_path),
-                    config.api_timeout,
-                    timestamp=run_timestamp
-                )
-                download_results['secure_parameters'] = downloader.download()
-                logger.info(f"Downloaded {download_results['secure_parameters']['count']} secure parameters")
-                
-                # Keystore Entries
-                logger.info("Downloading Keystore Entries...")
-                downloader = KeystoreEntriesDownloader(
-                    auth_client,
-                    config.api_base_url,
-                    Path(download_path),
-                    config.api_timeout,
-                    timestamp=run_timestamp
-                )
-                download_results['keystore_entries'] = downloader.download()
-                logger.info(f"Downloaded {download_results['keystore_entries']['count']} keystore entries")
-                
-                # Certificate-to-User Mappings (NEO only)
+
+                # Build the set of independent security downloaders
+                security_tasks = {
+                    'user_credentials': UserCredentialsDownloader(
+                        auth_client, config.api_base_url, Path(download_path), config.api_timeout, timestamp=run_timestamp),
+                    'oauth2_credentials': OAuth2ClientCredentialsDownloader(
+                        auth_client, config.api_base_url, Path(download_path), config.api_timeout, timestamp=run_timestamp),
+                    'secure_parameters': SecureParametersDownloader(
+                        auth_client, config.api_base_url, Path(download_path), config.api_timeout, timestamp=run_timestamp),
+                    'keystore_entries': KeystoreEntriesDownloader(
+                        auth_client, config.api_base_url, Path(download_path), config.api_timeout, timestamp=run_timestamp),
+                    'access_policies': AccessPoliciesDownloader(
+                        auth_client, config.api_base_url, Path(download_path), config.api_timeout, timestamp=run_timestamp),
+                }
                 if config.subaccount_type == 'NEO':
-                    logger.info("Downloading Certificate-to-User Mappings (NEO)...")
-                    downloader = CertificateUserMappingsDownloader(
-                        auth_client,
-                        config.api_base_url,
-                        Path(download_path),
-                        config.api_timeout,
-                        timestamp=run_timestamp
-                    )
-                    download_results['certificate_user_mappings'] = downloader.download()
-                    logger.info(f"Downloaded {download_results['certificate_user_mappings']['count']} certificate-to-user mappings")
+                    security_tasks['certificate_user_mappings'] = CertificateUserMappingsDownloader(
+                        auth_client, config.api_base_url, Path(download_path), config.api_timeout, timestamp=run_timestamp)
                 else:
                     logger.info("Certificate-to-User Mappings skipped (only available for NEO subaccounts)")
-                
-                # Access Policies (with normalized ArtifactReferences)
-                logger.info("Downloading Access Policies...")
-                downloader = AccessPoliciesDownloader(
-                    auth_client,
-                    config.api_base_url,
-                    Path(download_path),
-                    config.api_timeout,
-                    timestamp=run_timestamp
-                )
-                download_results['access_policies'] = downloader.download()
-                logger.info(f"Downloaded {download_results['access_policies']['count']} access policy records ({download_results['access_policies']['original_policy_count']} policies)")
+
+                logger.info(f"Running {len(security_tasks)} security API calls concurrently...")
+                with ThreadPoolExecutor(max_workers=len(security_tasks)) as executor:
+                    future_to_key = {executor.submit(d.download): key for key, d in security_tasks.items()}
+                    for future in as_completed(future_to_key):
+                        key = future_to_key[future]
+                        try:
+                            download_results[key] = future.result()
+                        except Exception as e:
+                            logger.error(f"Security download failed for {key}: {e}")
+                            download_results[key] = {'count': 0, 'items': []}
+
+                # Log results after all futures complete
+                logger.info(f"Downloaded {download_results.get('user_credentials', {}).get('count', 0)} user credentials")
+                logger.info(f"Downloaded {download_results.get('oauth2_credentials', {}).get('count', 0)} OAuth2 client credentials")
+                logger.info(f"Downloaded {download_results.get('secure_parameters', {}).get('count', 0)} secure parameters")
+                logger.info(f"Downloaded {download_results.get('keystore_entries', {}).get('count', 0)} keystore entries")
+                if config.subaccount_type == 'NEO':
+                    logger.info(f"Downloaded {download_results.get('certificate_user_mappings', {}).get('count', 0)} certificate-to-user mappings")
+                ap = download_results.get('access_policies', {})
+                logger.info(f"Downloaded {ap.get('count', 0)} access policy records ({ap.get('original_policy_count', 0)} policies)")
             
             # Download Partner Directory Binary Parameters (independent)
             if not args.api:
@@ -535,7 +498,7 @@ def main():
             logger.info("=" * 70)
         
             # PHASE 1.5: DOWNLOAD ARTIFACT ZIPS (if packages and iflows are available)
-            if 'packages' in download_results and 'iflows' in download_results:
+            if not args.save_only and 'packages' in download_results and 'iflows' in download_results:
                 logger.info("")
                 logger.info("=" * 70)
                 logger.info("PHASE 1.5: DOWNLOADING ARTIFACT ZIPS")
@@ -560,9 +523,9 @@ def main():
                     value_mappings = download_results.get('value_mappings', {}).get('items', [])
                     
                     zip_stats = zip_downloader.download_all(
-                        download_results['packages']['items'],
-                        download_results['iflows']['items'],
-                        download_results['script_collections']['items'],
+                        download_results.get('packages', {}).get('items', []),
+                        download_results.get('iflows', {}).get('items', []),
+                        download_results.get('script_collections', {}).get('items', []),
                         message_mappings,
                         value_mappings
                     )
@@ -596,7 +559,7 @@ def main():
                 logger.info("Skipping artifact ZIP downloads (packages or iflows not downloaded)")
 
             # PHASE 1.6: EXTRACT READ_ONLY PACKAGE ARTIFACTS
-            if 'packages' in download_results:
+            if not args.save_only and 'packages' in download_results:
                 logger.info("")
                 logger.info("=" * 70)
                 logger.info("PHASE 1.6: EXTRACTING READ_ONLY PACKAGE ARTIFACTS")
@@ -1365,16 +1328,13 @@ def main():
                     logger.warning("No reports were generated — check Report Selection in configuration")
                 logger.info("=" * 70)
                 logger.info("")
-                logger.info("Note: HTML/Excel output formatting not yet implemented")
-                logger.info("Report data has been generated and validated from database")
-                logger.info("=" * 70)
-                
+
             except Exception as e:
                 logger.error(f"Report generation failed: {e}")
                 logger.warning("Continuing despite report generation failure...")
 
         # CLEANUP: Delete downloads folder if configured (FULL mode only)
-        if config.execution_mode == "FULL" and config.cleanup_downloads:
+        if config.execution_mode == "FULL" and config.cleanup_downloads and not args.save_only:
             try:
                 import shutil
                 downloads_dir = Path(config.get_download_path(run_timestamp))
