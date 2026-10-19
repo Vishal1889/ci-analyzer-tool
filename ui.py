@@ -13,8 +13,13 @@ import sys
 import platform
 import subprocess
 import threading
+import time
+import json
+import webbrowser
 from pathlib import Path
+from datetime import datetime
 import base64 as _b64
+import tkinter as tk
 
 # ── Version ───────────────────────────────────────────────────────────────────
 try:
@@ -83,6 +88,178 @@ def _quote_env_value(value: str) -> str:
             value.startswith('"') or value.startswith("'")):
         return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
     return value
+
+
+# ─── Tooltip helper ────────────────────────────────────────────────────────────
+
+class _Tooltip:
+    """Lightweight hover tooltip — shows near the widget on <Enter>, hides on <Leave>."""
+
+    def __init__(self, widget: tk.Widget, text: str):
+        self._widget = widget
+        self._text = text
+        self._win: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._show, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+
+    def _show(self, event=None):
+        if self._win:
+            return
+        x = self._widget.winfo_rootx() + 20
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
+        self._win = tk.Toplevel(self._widget)
+        self._win.wm_overrideredirect(True)
+        self._win.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            self._win,
+            text=self._text,
+            background="#ffffe0",
+            foreground="#000000",
+            relief="solid",
+            borderwidth=1,
+            font=("TkDefaultFont", 9),
+            wraplength=280,
+            justify="left",
+            padx=4,
+            pady=3,
+        )
+        label.pack()
+
+    def _hide(self, event=None):
+        if self._win:
+            self._win.destroy()
+            self._win = None
+
+
+# ─── Field tooltip texts ───────────────────────────────────────────────────────
+
+FIELD_TOOLTIPS: dict[str, str] = {
+    # ── Tenant ──────────────────────────────────────────────────────────────
+    "SAP_TENANT_ID": (
+        "Unique identifier for your SAP CI tenant.\n"
+        "Used as the folder name for run outputs and the SQLite database filename."
+    ),
+    "SAP_TENANT_SHORT_NAME": (
+        "Short label used in filenames and logs.\n"
+        "Keep it alphanumeric with no spaces."
+    ),
+    "SAP_SUBACCOUNT_TYPE": (
+        "CF (Cloud Foundry) or NEO.\n"
+        "Determines which APIs are available — Certificate-to-User mappings are\n"
+        "NEO-only; OAuth is required for CF."
+    ),
+    # ── Authentication ───────────────────────────────────────────────────────
+    "SAP_AUTH_TYPE": (
+        "OAUTH for CF and NEO subaccounts with OAuth credentials.\n"
+        "BASIC for NEO subaccounts using username/password.\n"
+        "CF only supports OAUTH."
+    ),
+    "SAP_OAUTH_TOKEN_URL": (
+        "The OAuth token endpoint URL for your tenant.\n"
+        "Found in your SAP BTP service key under 'tokenurl'.\n"
+        "Example: https://tenant.authentication.eu1.hana.ondemand.com/oauth/token"
+    ),
+    "SAP_CLIENT_ID": (
+        "OAuth client ID from your SAP BTP service key.\n"
+        "Typically starts with 'sb-'."
+    ),
+    "SAP_CLIENT_SECRET": (
+        "OAuth client secret from your SAP BTP service key.\n"
+        "Stored locally in .env — keep this file secure."
+    ),
+    "SAP_BASIC_AUTH_USERNAME": (
+        "Username for Basic authentication (NEO subaccounts only)."
+    ),
+    "SAP_BASIC_AUTH_PASSWORD": (
+        "Password for Basic authentication (NEO subaccounts only).\n"
+        "Stored locally in .env — keep this file secure."
+    ),
+    # ── API ──────────────────────────────────────────────────────────────────
+    "SAP_API_BASE_URL": (
+        "The OData API base URL for your CI tenant. Must start with https://.\n"
+        "Example: https://mytenant-tmn.eu1.hana.ondemand.com/api/v1"
+    ),
+    # ── Execution ────────────────────────────────────────────────────────────
+    "EXECUTION_MODE": (
+        "FULL: Download all data and generate reports from scratch.\n"
+        "REPORT_ONLY: Skip downloads and re-generate reports from an existing .db file."
+    ),
+    "REPORT_DB_PATH": (
+        "Path to an existing SQLite .db file.\n"
+        "Required when Execution Mode is REPORT_ONLY."
+    ),
+    # ── Report Selection ─────────────────────────────────────────────────────
+    "REPORT_NEO_TO_CF": (
+        "Generate the NEO → CF migration assessment HTML report.\n"
+        "Shows readiness per IFlow and per package."
+    ),
+    # ── Runtime Settings ─────────────────────────────────────────────────────
+    "RUNS_DIR": (
+        "Directory where run output folders are created.\n"
+        "Each run creates a subfolder: runs/{tenant_id}/{timestamp}/."
+    ),
+    "LOG_LEVEL": (
+        "Verbosity of the log output.\n"
+        "TRACE and DEBUG are very verbose; INFO is recommended for normal use."
+    ),
+    "TRACE_API_CALLS": (
+        "Log the full URL and response of every API call.\n"
+        "Very verbose — useful for debugging connectivity issues."
+    ),
+    "PARALLEL_DOWNLOADS": (
+        "Number of concurrent download threads (ThreadPoolExecutor workers).\n"
+        "Higher values speed up large tenants but may hit API rate limits.\n"
+        "Default: 1. Range: 1–10."
+    ),
+    "API_TIMEOUT": (
+        "Seconds before an API request times out.\n"
+        "Increase for slow networks or large responses. Default: 30."
+    ),
+    "API_RETRY_COUNT": (
+        "Number of times a failed API call is retried before giving up.\n"
+        "Default: 3."
+    ),
+    "API_PAGE_SIZE": (
+        "Number of records fetched per OData $top page request.\n"
+        "Smaller values are safer for large tenants; larger values are faster.\n"
+        "Default: 50. Range: 1–500."
+    ),
+    "MAX_ARTIFACT_SIZE_MB": (
+        "Maximum ZIP size (in MB) to download for IFlow artifacts.\n"
+        "IFlows larger than this are skipped during extraction.\n"
+        "Default: 50."
+    ),
+    "CLEANUP_DOWNLOADS": (
+        "Delete the downloads/ folder after reports are generated to save disk space.\n"
+        "Only applies in FULL execution mode."
+    ),
+    # ── Discover Integration ─────────────────────────────────────────────────
+    "ENABLE_DISCOVER": (
+        "Enable comparison of your package versions against versions published\n"
+        "on SAP API Business Hub (API.sap.com)."
+    ),
+    "DISCOVER_BASE_URL": (
+        "Base URL for the SAP API Business Hub (Discover) endpoint.\n"
+        "Used to compare local package versions with published versions.\n"
+        "Leave blank to skip version-comparison checks."
+    ),
+    "DISCOVER_OAUTH_CLIENT_ID": (
+        "OAuth client ID for authenticating to the SAP API Business Hub (Discover)."
+    ),
+    "DISCOVER_OAUTH_CLIENT_SECRET": (
+        "OAuth client secret for authenticating to the SAP API Business Hub (Discover).\n"
+        "Stored locally in .env — keep this file secure."
+    ),
+    "DISCOVER_OAUTH_TOKEN_URL": (
+        "OAuth token URL for authenticating to the SAP API Business Hub (Discover)."
+    ),
+}
+
+
+# ─── Preferences file path ─────────────────────────────────────────────────────
+
+_PREFS_FILE = Path.home() / ".ci_analyzer_prefs.json"
+
 
 # ─── Field Definitions (data-driven)  ──────────────────────────────────────────
 # Supported types:  "entry" | "password" | "dropdown" | "checkbox" | "file_browse"
@@ -235,7 +412,7 @@ ENV_FIELDS = [
         "label": "Parallel Downloads",
         "type": "entry",
         "section": "Runtime Settings",
-        "default": "1",
+        "default": "5",
         "placeholder": "1–10",
     },
     {
@@ -328,7 +505,7 @@ class CIAnalyzerUI(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title(f"SAP CI Analyzer Tool  v{__version__}")
-        self.geometry("760x680")
+        self.geometry("680x520")
         self.minsize(680, 520)
 
         self.process: subprocess.Popen | None = None
@@ -336,6 +513,10 @@ class CIAnalyzerUI(ctk.CTk):
         # Widget registry:
         #   key → {"var": tk-var, "widgets": [widget, ...], "label": CTkLabel, "field_def": dict}
         self._registry: dict[str, dict] = {}
+
+        # Elapsed-timer state (improvement #8)
+        self._run_start_time: float | None = None
+        self._timer_after_id: str | None = None
 
         # Set taskbar / window icon
         try:
@@ -355,7 +536,53 @@ class CIAnalyzerUI(ctk.CTk):
         self._build_layout()
         self._load_env()
 
-    # ── Layout builders ────────────────────────────────────────────────────────
+        # ── Keyboard shortcuts (improvement #7) ───────────────────────────────
+        self.bind("<Control-s>", lambda event: self._save_env())
+        self.bind("<Control-r>", self._on_ctrl_r)
+
+        # ── Window geometry memory (improvement #10) ──────────────────────────
+        self._restore_geometry()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ── Keyboard-shortcut handlers ─────────────────────────────────────────────
+
+    def _on_ctrl_r(self, event=None):
+        """Ctrl+R → run only when not already running."""
+        if not (self.process and self.process.poll() is None):
+            self._run_analysis()
+
+    # ── Window geometry save/restore ───────────────────────────────────────────
+
+    def _restore_geometry(self):
+        """Load saved window geometry from prefs file if it exists and is valid."""
+        try:
+            if _PREFS_FILE.exists():
+                prefs = json.loads(_PREFS_FILE.read_text(encoding="utf-8"))
+                geo = prefs.get("geometry", "")
+                if geo and isinstance(geo, str):
+                    # Validate the geometry string format: WxH+X+Y
+                    import re
+                    if re.match(r"^\d+x\d+[+-]\d+[+-]\d+$", geo):
+                        self.geometry(geo)
+        except Exception:
+            pass  # Prefs are cosmetic — never block startup
+
+    def _on_close(self):
+        """Save window geometry then destroy the window."""
+        try:
+            prefs: dict = {}
+            if _PREFS_FILE.exists():
+                try:
+                    prefs = json.loads(_PREFS_FILE.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+            prefs["geometry"] = self.geometry()
+            _PREFS_FILE.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        self.destroy()
+
+
 
     def _build_layout(self):
         self.tabview = ctk.CTkTabview(self, anchor="nw")
@@ -372,6 +599,7 @@ class CIAnalyzerUI(ctk.CTk):
         scroll = ctk.CTkScrollableFrame(parent, label_text="")
         scroll.pack(fill="both", expand=True, padx=0, pady=(0, 6))
         scroll.grid_columnconfigure(1, weight=1)
+        scroll.grid_columnconfigure(3, weight=0, minsize=28)
 
         # Group fields by section (preserving declaration order)
         sections: dict[str, list[dict]] = {}
@@ -502,10 +730,26 @@ class CIAnalyzerUI(ctk.CTk):
             # Unknown type – skip but reserve row
             var = ctk.StringVar()
 
+        # ── Tooltip ⓘ icon (improvement #5) ─────────────────────────────────
+        tip_text = FIELD_TOOLTIPS.get(key)
+        info_lbl = None
+        if tip_text:
+            info_lbl = ctk.CTkLabel(
+                parent,
+                text=" ⓘ",
+                text_color=("#3a7ebf", "#5a9fd4"),
+                font=ctk.CTkFont(size=13),
+                cursor="question_arrow",
+                width=22,
+            )
+            info_lbl.grid(row=grid_row, column=3, sticky="w", padx=(0, 6), pady=4)
+            _Tooltip(info_lbl, tip_text)
+
         self._registry[key] = {
             "var": var,
             "widgets": widgets,
             "label": label,
+            "info_icon": info_lbl,   # may be None if no tooltip defined
             "field_def": field,
         }
 
@@ -525,6 +769,30 @@ class CIAnalyzerUI(ctk.CTk):
         )
         self.status_label.pack(side="left", padx=14, pady=6)
 
+        # ── Log search bar (improvement #9) — right side of status bar ────────
+        ctk.CTkButton(
+            status_bar,
+            text="Find",
+            command=self._find_in_log,
+            width=60,
+            height=26,
+        ).pack(side="right", padx=(0, 8), pady=5)
+
+        self._search_var = ctk.StringVar()
+        self._search_entry = ctk.CTkEntry(
+            status_bar,
+            textvariable=self._search_var,
+            placeholder_text="Search log…",
+            width=200,
+            height=26,
+        )
+        self._search_entry.pack(side="right", padx=(0, 4), pady=5)
+        self._search_entry.bind("<Return>", lambda _e: self._find_in_log())
+
+        # ── Progress bar (improvement #2) ─────────────────────────────────────
+        self.progress_bar = ctk.CTkProgressBar(parent, mode="indeterminate", height=6)
+        # Not packed yet — will be shown when a run starts
+
         # Output textbox
         self.output_box = ctk.CTkTextbox(
             parent,
@@ -533,6 +801,14 @@ class CIAnalyzerUI(ctk.CTk):
             state="disabled",
         )
         self.output_box.pack(fill="both", expand=True, padx=4, pady=(0, 6))
+
+        # Configure colour tags on the underlying tk.Text widget
+        _tb = self.output_box._textbox
+        _tb.tag_configure("error",   foreground="#FF6666")
+        _tb.tag_configure("warning", foreground="#FFD966")
+        _tb.tag_configure("phase",   foreground="#66CCFF")
+        _tb.tag_configure("success", foreground="#66DD66")
+        _tb.tag_configure("search_highlight", background="#FFD700", foreground="#000000")
 
         # Button bar
         btn_bar = ctk.CTkFrame(parent, fg_color="transparent")
@@ -554,7 +830,26 @@ class CIAnalyzerUI(ctk.CTk):
             text="📂  Open Runs Folder",
             command=self._open_runs_folder,
             width=165,
-        ).pack(side="left")
+        ).pack(side="left", padx=(0, 8))
+
+        # ── Open Latest Report button (improvement #3) ────────────────────────
+        self.open_report_btn = ctk.CTkButton(
+            btn_bar,
+            text="📂 Open Report",
+            command=self._open_latest_report,
+            width=140,
+            state="disabled",
+        )
+        self.open_report_btn.pack(side="left", padx=(0, 8))
+
+        # ── Auto-scroll checkbox (improvement #6) ─────────────────────────────
+        self._auto_scroll_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            btn_bar,
+            text="Auto-scroll",
+            variable=self._auto_scroll_var,
+            width=100,
+        ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
             btn_bar,
@@ -631,19 +926,23 @@ class CIAnalyzerUI(ctk.CTk):
         visible = dep_info["var"].get() == dep_val
 
         if visible:
-            info["label"].grid()          # restore with remembered grid options
+            info["label"].grid()
             for widget in info["widgets"]:
                 try:
-                    widget.grid()         # restore
+                    widget.grid()
                 except Exception:
                     pass
+            if info.get("info_icon"):
+                info["info_icon"].grid()
         else:
-            info["label"].grid_remove()   # hide but remember grid position
+            info["label"].grid_remove()
             for widget in info["widgets"]:
                 try:
                     widget.grid_remove()
                 except Exception:
                     pass
+            if info.get("info_icon"):
+                info["info_icon"].grid_remove()
 
     # ── .env I/O ───────────────────────────────────────────────────────────────
 
@@ -749,7 +1048,20 @@ class CIAnalyzerUI(ctk.CTk):
         self.tabview.set("▶  Run & Output")
         self._set_status("● Running…", color="#FFA040")
         self.stop_btn.configure(state="normal")
+        self.open_report_btn.configure(state="disabled")
         self._stop_requested = False
+
+        # ── Improvement #4: timestamp header ──────────────────────────────────
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._append_output(f"▶  Started: {ts}\n\n")
+
+        # ── Improvement #2: progress bar ───────────────────────────────────────
+        self.progress_bar.pack(fill="x", padx=4, pady=(0, 2))
+        self.progress_bar.start()
+
+        # ── Improvement #8: elapsed timer ─────────────────────────────────────
+        self._run_start_time = time.monotonic()
+        self._tick_elapsed_timer()
 
         if getattr(sys, "frozen", False):
             # Re-invoke the frozen binary with --run-analysis so it uses the
@@ -776,6 +1088,7 @@ class CIAnalyzerUI(ctk.CTk):
             self._append_output(f"[ERROR] Failed to start process:\n{exc}\n")
             self._set_status("● Error", color="#FF4444")
             self.stop_btn.configure(state="disabled")
+            self._stop_run_ui()
 
     def _stream_output(self):
         """Background thread: read subprocess output line-by-line."""
@@ -788,6 +1101,7 @@ class CIAnalyzerUI(ctk.CTk):
             if rc == 0:
                 self._append_output("\n✅  Analysis completed successfully!\n")
                 self.after(0, lambda: self._set_status("● Completed", color="#44CC44"))
+                self.after(0, lambda: self.open_report_btn.configure(state="normal"))
             elif rc == 130 or self._stop_requested:  # SIGINT or explicit stop (Windows exits 1)
                 self._append_output("\n⚠️  Stopped by user.\n")
                 self.after(0, lambda: self._set_status("● Stopped", color="#888888"))
@@ -799,6 +1113,7 @@ class CIAnalyzerUI(ctk.CTk):
             self._append_output(f"\n[ERROR] Output stream error: {exc}\n")
         finally:
             self.after(0, lambda: self.stop_btn.configure(state="disabled"))
+            self.after(0, self._stop_run_ui)
 
     def _stop_process(self):
         """Send SIGTERM to the running subprocess."""
@@ -810,11 +1125,30 @@ class CIAnalyzerUI(ctk.CTk):
     # ── Helper methods ─────────────────────────────────────────────────────────
 
     def _append_output(self, text: str):
-        """Thread-safe: append text to the output box."""
+        """Thread-safe: append text to the output box with colour tags."""
         def _do():
+            tb = self.output_box._textbox  # underlying tk.Text widget
             self.output_box.configure(state="normal")
-            self.output_box.insert("end", text)
-            self.output_box.see("end")
+            start_idx = tb.index("end-1c")
+            tb.insert("end", text)
+            end_idx = tb.index("end-1c")
+
+            # ── Improvement #1: colour-coded log lines ─────────────────────────
+            upper = text.upper()
+            if "ERROR" in upper or "CRITICAL" in upper or "EXCEPTION" in upper:
+                tb.tag_add("error", start_idx, end_idx)
+            elif "WARNING" in upper or "WARN" in upper:
+                tb.tag_add("warning", start_idx, end_idx)
+            elif (upper.startswith("▶") or upper.startswith("PHASE")
+                    or "[PHASE" in upper or "PHASE " in upper):
+                tb.tag_add("phase", start_idx, end_idx)
+            elif "✅" in text or "COMPLETED SUCCESSFULLY" in upper:
+                tb.tag_add("success", start_idx, end_idx)
+
+            # ── Improvement #6: auto-scroll toggle ────────────────────────────
+            if self._auto_scroll_var.get():
+                self.output_box.see("end")
+
             self.output_box.configure(state="disabled")
 
         self.after(0, _do)
@@ -827,6 +1161,81 @@ class CIAnalyzerUI(ctk.CTk):
 
     def _set_status(self, text: str, color: str = ("gray10", "gray90")):
         self.status_label.configure(text=text, text_color=color)
+
+    # ── Improvement #2 + #8: shared "run finished" teardown ───────────────────
+
+    def _stop_run_ui(self):
+        """Stop progress bar and elapsed timer after a run finishes."""
+        # Stop indeterminate progress bar
+        try:
+            self.progress_bar.stop()
+            self.progress_bar.pack_forget()
+        except Exception:
+            pass
+        # Cancel the elapsed timer
+        if self._timer_after_id:
+            try:
+                self.after_cancel(self._timer_after_id)
+            except Exception:
+                pass
+            self._timer_after_id = None
+        self._run_start_time = None
+
+    # ── Improvement #8: elapsed timer ─────────────────────────────────────────
+
+    def _tick_elapsed_timer(self):
+        """Called every second while a run is active to update the status label."""
+        if self._run_start_time is None:
+            return
+        elapsed = int(time.monotonic() - self._run_start_time)
+        mins, secs = divmod(elapsed, 60)
+        self.status_label.configure(text=f"● Running…  ({mins}:{secs:02d})")
+        self._timer_after_id = self.after(1000, self._tick_elapsed_timer)
+
+    # ── Improvement #3: open latest report ────────────────────────────────────
+
+    def _find_latest_report(self) -> Path | None:
+        """Return the most-recently modified .html file under runs/, or None."""
+        runs_dir = _BASE_DIR / "runs"
+        if not runs_dir.exists():
+            return None
+        html_files = list(runs_dir.rglob("*.html"))
+        if not html_files:
+            return None
+        return max(html_files, key=lambda p: p.stat().st_mtime)
+
+    def _open_latest_report(self):
+        """Open the most recent HTML report in the default browser."""
+        report = self._find_latest_report()
+        if report:
+            webbrowser.open(report.as_uri())
+        else:
+            messagebox.showinfo("No Report Found", "No HTML report found in the runs/ folder.")
+
+    # ── Improvement #9: log search ─────────────────────────────────────────────
+
+    def _find_in_log(self):
+        """Search the output box for the entered text; highlight and wrap around."""
+        needle = self._search_var.get()
+        if not needle:
+            return
+        tb = self.output_box._textbox
+        # Remove previous highlights
+        tb.tag_remove("search_highlight", "1.0", "end")
+
+        # Start search from just after the current insert/selection cursor
+        start = tb.index("insert")
+        pos = tb.search(needle, start, stopindex="end", nocase=True)
+        if not pos:
+            # Wrap around from beginning
+            pos = tb.search(needle, "1.0", stopindex="end", nocase=True)
+        if pos:
+            end_pos = f"{pos}+{len(needle)}c"
+            tb.tag_add("search_highlight", pos, end_pos)
+            tb.mark_set("insert", end_pos)
+            tb.see(pos)
+        else:
+            messagebox.showinfo("Find", f'"{needle}" not found in output.')
 
     @staticmethod
     def _toggle_password(entry: ctk.CTkEntry):
