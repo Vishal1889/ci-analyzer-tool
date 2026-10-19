@@ -88,14 +88,15 @@ jobs:
       - name: Zip Windows app for distribution
         run: |
           cd dist
-          Compress-Archive -Path "CI-Analyzer" -DestinationPath "CI-Analyzer-Windows.zip"
-          Write-Host "Zipped: $(Get-Item CI-Analyzer-Windows.zip | Select-Object -ExpandProperty Length) bytes"
+          $zipName = "CI-Analyzer-Windows-${{ github.ref_name }}.zip"
+          Compress-Archive -Path "CI-Analyzer" -DestinationPath $zipName
+          Write-Host "Zipped: $(Get-Item $zipName | Select-Object -ExpandProperty Length) bytes"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4.6.2
         with:
           name: CI-Analyzer-Windows
-          path: dist/CI-Analyzer-Windows.zip
+          path: dist/CI-Analyzer-Windows-${{ github.ref_name }}.zip
 
   build-macos:
     name: Build macOS App
@@ -168,14 +169,14 @@ jobs:
       - name: Zip macOS app for distribution
         run: |
           cd dist
-          zip CI-Analyzer-macOS.zip CI-Analyzer
-          echo "Zipped: $(ls -lh CI-Analyzer-macOS.zip)"
+          zip "CI-Analyzer-macOS-${{ github.ref_name }}.zip" CI-Analyzer
+          echo "Zipped: $(ls -lh CI-Analyzer-macOS-${{ github.ref_name }}.zip)"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4.6.2
         with:
           name: CI-Analyzer-macOS
-          path: dist/CI-Analyzer-macOS.zip
+          path: dist/CI-Analyzer-macOS-${{ github.ref_name }}.zip
 
   release:
     name: Create GitHub Release
@@ -212,8 +213,8 @@ jobs:
             ### Downloads
             | Platform | File | Notes |
             |----------|------|-------|
-            | Windows | `CI-Analyzer-Windows.zip` | Unzip folder, double-click `CI-Analyzer.exe` inside |
-            | macOS | `CI-Analyzer-macOS.zip` | Unzip folder, double-click `CI-Analyzer` inside |
+            | Windows | `CI-Analyzer-Windows-${{ github.ref_name }}.zip` | Unzip folder, double-click `CI-Analyzer.exe` inside |
+            | macOS | `CI-Analyzer-macOS-${{ github.ref_name }}.zip` | Unzip folder, double-click `CI-Analyzer` inside |
             | Windows Trust | `ci-analyzer-codesign.cer` | Public code-signing certificate |
 
             ### First Run
@@ -229,8 +230,8 @@ jobs:
             4. Browse → select **Trusted Root Certification Authorities** → Finish
             5. Repeat steps 2–4 and select **Trusted Publishers** instead
           files: |
-            artifacts/windows/CI-Analyzer-Windows.zip
-            artifacts/macos/CI-Analyzer-macOS.zip
+            artifacts/windows/CI-Analyzer-Windows-${{ github.ref_name }}.zip
+            artifacts/macos/CI-Analyzer-macOS-${{ github.ref_name }}.zip
             ci-analyzer-codesign.cer
           draft: false
           prerelease: false
