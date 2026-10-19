@@ -57,6 +57,16 @@ class DynamicDatabaseManager:
     EXCLUDED_FIELDS = {
         'partner_directory_binary_parameter': ['Value']  # Exclude Value field to prevent DB bloat
     }
+
+    # Minimum columns to create when a JSON file returns 0 results (schema cannot be inferred from data).
+    # Without this, the table is created with only tenant_id/captured_at, causing report queries to fail.
+    FALLBACK_COLUMNS = {
+        'message_mapping':            ['ArtifactContent', 'Description', 'Id', 'Name', 'PackageId', 'Version'],
+        'value_mapping':              ['ArtifactContent', 'Description', 'Id', 'Name', 'PackageId', 'Version'],
+        'script_collection':          ['Id', 'Name', 'PackageId', 'Version'],
+        'iflow':                      ['Id', 'Name', 'PackageId', 'Version', 'Mode'],
+        'environment_variable_check': ['envVariableCount', 'envVariableList', 'fileName', 'fileType', 'parentName'],
+    }
     
     def __init__(self, db_path: str, tenant_id: str, captured_at: str):
         """
@@ -138,7 +148,7 @@ class DynamicDatabaseManager:
             List of column names (preserving JSON field names)
         """
         if not rows:
-            return []
+            return list(self.FALLBACK_COLUMNS.get(table_name, []))
         
         # Get all unique keys from all rows (some rows may have different fields)
         all_keys = set()

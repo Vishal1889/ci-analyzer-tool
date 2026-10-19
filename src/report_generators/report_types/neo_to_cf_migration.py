@@ -16,6 +16,65 @@ class NeoToCFMigrationReport(BaseReport):
     def __init__(self, db_path, tenant_id: str, captured_at: str, subaccount_type: str = 'CF'):
         super().__init__(db_path, tenant_id, captured_at)
         self.subaccount_type = subaccount_type
+        # Pre-check whether message_mapping has real data columns.
+        # When a tenant has 0 message mappings the DB table is created with only
+        # tenant_id/captured_at, making any query that references mm.Id etc. fail.
+        self._mm_has_schema = self._check_column_exists('message_mapping', 'Id')
+        if not self._mm_has_schema:
+            logger.info("  message_mapping table has no data columns — treating as empty")
+        self._evc_has_schema = self._check_column_exists('environment_variable_check', 'parentName')
+        if not self._evc_has_schema:
+            logger.info("  environment_variable_check table has no data columns — HC_ variable data unavailable")
+
+    def _check_column_exists(self, table: str, column: str) -> bool:
+        """Return True if *column* exists in *table* (False if table/column missing)."""
+        try:
+            cols = {r['name'] for r in self.execute_query(
+                f"SELECT name FROM pragma_table_info('{table}')"
+            )}
+            return column in cols
+        except Exception:
+            return False
+
+    @property
+    def _mm_source(self) -> str:
+        """SQL fragment for message_mapping that always exposes Id/Name/PackageId/Version/tenant_id.
+
+        When the table was created from an empty download response it only has
+        tenant_id and captured_at — all column references would fail.  Return a
+        zero-row dummy subquery with the expected columns instead.
+        """
+        if self._mm_has_schema:
+            return 'message_mapping'
+        return (
+            "(SELECT NULL AS Id, NULL AS Name, NULL AS PackageId, "
+            "NULL AS Version, NULL AS ArtifactContent, NULL AS tenant_id WHERE 1=0)"
+        )
+
+    @property
+    def _evc_pname_subq(self) -> str:
+        """Subquery returning (parentName) from environment_variable_check.
+        Safe when the table has no real columns (empty download). Uses exactly 1 ? param."""
+        if self._evc_has_schema:
+            return (
+                "(SELECT parentName FROM environment_variable_check\n"
+                "                WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0\n"
+                "                GROUP BY parentName)"
+            )
+        return "(SELECT NULL AS parentName WHERE ? IS NULL)"
+
+    @property
+    def _evc_hccount_subq(self) -> str:
+        """Subquery returning (parentName, hc_file_count) from environment_variable_check.
+        Safe when the table has no real columns (empty download). Uses exactly 1 ? param."""
+        if self._evc_has_schema:
+            return (
+                "(SELECT parentName, SUM(CAST(envVariableCount AS INTEGER)) as hc_file_count\n"
+                "            FROM environment_variable_check\n"
+                "            WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0\n"
+                "            GROUP BY parentName)"
+            )
+        return "(SELECT NULL AS parentName, 0 AS hc_file_count WHERE ? IS NULL)"
     
     def get_report_name(self) -> str:
         return "neo_to_cf_migration_assessment"
@@ -296,20 +355,20 @@ class NeoToCFMigrationReport(BaseReport):
         ]
         
         # Top 5 packages by artifact count
-        top_packages_query = """
-        SELECT 
+        top_packages_query = f"""
+        SELECT
             p.Name as package_name,
             p.Mode as mode,
             COUNT(DISTINCT i.Id) as iflow_count,
             COUNT(DISTINCT sc.Name) as script_count,
             COUNT(DISTINCT mm.Id) as msg_map_count,
             COUNT(DISTINCT vm.Id) as val_map_count,
-            (COUNT(DISTINCT i.Id) + COUNT(DISTINCT sc.Name) + 
+            (COUNT(DISTINCT i.Id) + COUNT(DISTINCT sc.Name) +
              COUNT(DISTINCT mm.Id) + COUNT(DISTINCT vm.Id)) as total_artifacts
         FROM package p
         LEFT JOIN iflow i ON p.Id = i.PackageId AND p.tenant_id = i.tenant_id
         LEFT JOIN script_collection sc ON p.Id = sc.PackageId AND p.tenant_id = sc.tenant_id
-        LEFT JOIN message_mapping mm ON p.Id = mm.PackageId AND p.tenant_id = mm.tenant_id
+        LEFT JOIN {self._mm_source} mm ON p.Id = mm.PackageId AND p.tenant_id = mm.tenant_id
         LEFT JOIN value_mapping vm ON p.Id = vm.PackageId AND p.tenant_id = vm.tenant_id
         WHERE p.tenant_id = ?
         GROUP BY p.Name, p.Mode
@@ -442,15 +501,15 @@ class NeoToCFMigrationReport(BaseReport):
         
         # Package details with artifact counts
         # Using same logic as Dashboard for package type classification
-        query = """
-        SELECT 
+        query = f"""
+        SELECT
             p.Id as package_id,
             p.Name as package_name,
             p.Vendor as vendor,
             p.Mode as mode,
             p.Version as version,
             p.ShortText as description,
-            CASE 
+            CASE
                 WHEN p.Mode = 'READ_ONLY' THEN 'Standard (Configure-Only)'
                 WHEN p.Mode != 'READ_ONLY' AND (p.PartnerContent = 1 OR LOWER(p.Vendor) LIKE '%sap%') THEN 'Standard (Editable)'
                 WHEN p.Mode != 'READ_ONLY' AND (p.PartnerContent != 1 OR p.PartnerContent IS NULL) AND (LOWER(p.Vendor) NOT LIKE '%sap%' OR p.Vendor IS NULL OR TRIM(p.Vendor) = '') THEN 'Custom'
@@ -460,12 +519,12 @@ class NeoToCFMigrationReport(BaseReport):
             COUNT(DISTINCT sc.Name) as script_count,
             COUNT(DISTINCT mm.Id) as msg_map_count,
             COUNT(DISTINCT vm.Id) as val_map_count,
-            (COUNT(DISTINCT i.Id) + COUNT(DISTINCT sc.Name) + 
+            (COUNT(DISTINCT i.Id) + COUNT(DISTINCT sc.Name) +
              COUNT(DISTINCT mm.Id) + COUNT(DISTINCT vm.Id)) as total_artifacts
         FROM package p
         LEFT JOIN iflow i ON p.Id = i.PackageId AND p.tenant_id = i.tenant_id
         LEFT JOIN script_collection sc ON p.Id = sc.PackageId AND p.tenant_id = sc.tenant_id
-        LEFT JOIN message_mapping mm ON p.Id = mm.PackageId AND p.tenant_id = mm.tenant_id
+        LEFT JOIN {self._mm_source} mm ON p.Id = mm.PackageId AND p.tenant_id = mm.tenant_id
         LEFT JOIN value_mapping vm ON p.Id = vm.PackageId AND p.tenant_id = vm.tenant_id
         WHERE p.tenant_id = ?
         GROUP BY p.Id, p.Name, p.Vendor, p.Mode, p.Version, p.ShortText, p.PartnerContent
@@ -500,7 +559,7 @@ class NeoToCFMigrationReport(BaseReport):
 
         # 1. Get per-package artifact readiness counts
         #    Reuses the same draft + HC_ env-var logic as the deployment status query.
-        artifact_readiness_query = """
+        artifact_readiness_query = f"""
         SELECT
             PackageId,
             SUM(CASE WHEN readiness = 'Green' THEN 1 ELSE 0 END) as green_count,
@@ -515,11 +574,7 @@ class NeoToCFMigrationReport(BaseReport):
                     ELSE 'Green'
                 END as readiness
             FROM iflow i
-            LEFT JOIN (
-                SELECT parentName FROM environment_variable_check
-                WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
-                GROUP BY parentName
-            ) evc ON i.Id = evc.parentName
+            LEFT JOIN {self._evc_pname_subq} evc ON i.Id = evc.parentName
             WHERE i.tenant_id = ?
 
             UNION ALL
@@ -531,18 +586,14 @@ class NeoToCFMigrationReport(BaseReport):
                     ELSE 'Green'
                 END as readiness
             FROM script_collection sc
-            LEFT JOIN (
-                SELECT parentName FROM environment_variable_check
-                WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
-                GROUP BY parentName
-            ) evc ON sc.Id = evc.parentName
+            LEFT JOIN {self._evc_pname_subq} evc ON sc.Id = evc.parentName
             WHERE sc.tenant_id = ?
 
             UNION ALL
 
             SELECT mm.PackageId,
                 CASE WHEN mm.Version = 'Active' THEN 'Amber' ELSE 'Green' END as readiness
-            FROM message_mapping mm WHERE mm.tenant_id = ?
+            FROM {self._mm_source} mm WHERE mm.tenant_id = ?
 
             UNION ALL
 
@@ -734,7 +785,7 @@ class NeoToCFMigrationReport(BaseReport):
         # All artifacts deployment status (IFlows, Script Collections, Message Mappings, Value Mappings)
         # Includes migration_readiness (Green/Amber/Red).
         # HC_ env var check via environment_variable_check table (IFlows & Script Collections only).
-        all_artifacts_query = """
+        all_artifacts_query = f"""
         SELECT
             i.Id as artifact_id,
             i.Name as artifact_name,
@@ -759,12 +810,7 @@ class NeoToCFMigrationReport(BaseReport):
         FROM iflow i
         INNER JOIN package p ON i.PackageId = p.Id AND i.tenant_id = p.tenant_id
         LEFT JOIN runtime r ON i.Id = r.Id AND i.tenant_id = r.tenant_id
-        LEFT JOIN (
-            SELECT parentName, SUM(CAST(envVariableCount AS INTEGER)) as hc_file_count
-            FROM environment_variable_check
-            WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
-            GROUP BY parentName
-        ) evc ON i.Id = evc.parentName
+        LEFT JOIN {self._evc_hccount_subq} evc ON i.Id = evc.parentName
         WHERE i.tenant_id = ?
 
         UNION ALL
@@ -793,12 +839,7 @@ class NeoToCFMigrationReport(BaseReport):
         FROM script_collection sc
         INNER JOIN package p ON sc.PackageId = p.Id AND sc.tenant_id = p.tenant_id
         LEFT JOIN runtime r ON sc.Id = r.Id AND r.Type = 'SCRIPT_COLLECTION' AND sc.tenant_id = r.tenant_id
-        LEFT JOIN (
-            SELECT parentName, SUM(CAST(envVariableCount AS INTEGER)) as hc_file_count
-            FROM environment_variable_check
-            WHERE tenant_id = ? AND CAST(envVariableCount AS INTEGER) > 0
-            GROUP BY parentName
-        ) evc ON sc.Id = evc.parentName
+        LEFT JOIN {self._evc_hccount_subq} evc ON sc.Id = evc.parentName
         WHERE sc.tenant_id = ?
 
         UNION ALL
@@ -823,7 +864,7 @@ class NeoToCFMigrationReport(BaseReport):
                 WHEN mm.Version = 'Active' THEN 'Amber'
                 ELSE 'Green'
             END as migration_readiness
-        FROM message_mapping mm
+        FROM {self._mm_source} mm
         INNER JOIN package p ON mm.PackageId = p.Id AND mm.tenant_id = p.tenant_id
         LEFT JOIN runtime r ON mm.Id = r.Id AND r.Type = 'MESSAGE_MAPPING' AND mm.tenant_id = r.tenant_id
         WHERE mm.tenant_id = ?
@@ -1050,6 +1091,20 @@ class NeoToCFMigrationReport(BaseReport):
             )
         except:
             logger.info("  Environment variables table not available")
+            return {
+                'variables': [],
+                'stats': {
+                    'total_variables': 0,
+                    'total_files': 0,
+                    'by_file_type': {},
+                    'by_parent_type': {}
+                },
+                'available': False
+            }
+
+        # Table exists but may have no real columns when scanner produced 0 results
+        if not self._evc_has_schema:
+            logger.info("  Environment variable check table has no data columns — no HC_ variables found")
             return {
                 'variables': [],
                 'stats': {
