@@ -16,6 +16,12 @@ import threading
 from pathlib import Path
 import base64 as _b64
 
+# ── Version ───────────────────────────────────────────────────────────────────
+try:
+    from version import __version__
+except ImportError:
+    __version__ = "dev"
+
 # ── Analysis-runner mode ───────────────────────────────────────────────────────
 # When the frozen binary is called with --run-analysis it skips the GUI entirely
 # and runs main.main() using the bundled Python environment (which has all
@@ -321,7 +327,7 @@ class CIAnalyzerUI(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("SAP CI Analyzer Tool")
+        self.title(f"SAP CI Analyzer Tool  v{__version__}")
         self.geometry("760x680")
         self.minsize(680, 520)
 

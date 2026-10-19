@@ -12,6 +12,11 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+try:
+    from version import __version__
+except ImportError:
+    __version__ = "dev"
+
 
 def parse_arguments():
     """Parse command line arguments"""
@@ -43,7 +48,7 @@ def parse_arguments():
     parser.add_argument(
         "--version",
         action="version",
-        version="CI Analyzer Tool v0.1.0"
+        version=f"CI Analyzer Tool v{__version__}"
     )
     
     return parser.parse_args()

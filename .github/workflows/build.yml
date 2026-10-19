@@ -29,6 +29,12 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Stamp version
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          "__version__ = '$ver'" | Set-Content version.py
+          Write-Host "version.py → $ver"
+
       - name: Build Windows EXE
         run: |
           pyinstaller --onedir --windowed `
@@ -116,6 +122,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller Pillow
+
+      - name: Stamp version
+        run: |
+          ver="${{ github.ref_name }}"
+          ver="${ver#v}"
+          echo "__version__ = '$ver'" > version.py
+          echo "version.py → $ver"
 
       - name: Create macOS .icns icon
         run: |
